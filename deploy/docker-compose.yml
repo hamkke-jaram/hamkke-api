@@ -1,0 +1,64 @@
+# 함께자람 운영 구성 (AWS EC2 서울 리전 1대 기준)
+#   web : nginx (정적 파일 + /api 프록시 + TLS)
+#   api : Spring Boot (prod 프로필)
+#   mysql : MySQL 8 (외부 포트 열지 않음)
+# 저장소 배치: hamkke-api 와 hamkke-web 을 같은 상위 폴더에 클론한다.
+# 사용: cp .env.example .env && (값 채우기) && docker compose up -d --build
+
+name: hamkke-jaram
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-hamkke}
+      MYSQL_USER: ${DB_USER:?DB_USER is required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ..
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: mysql
+      DB_NAME: ${DB_NAME:-hamkke}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (32+ chars)}
+    expose:
+      - "8080"
+
+  web:
+    build: ../../hamkke-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      SERVER_NAME: ${SERVER_NAME:?SERVER_NAME is required}
+      API_UPSTREAM: api:8080
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ${CERT_DIR:-./certs}:/etc/nginx/certs:ro
+      - ./certbot-www:/var/www/certbot:ro
+
+volumes:
+  mysql-data:

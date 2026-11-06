@@ -1,0 +1,10 @@
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.idea/
+*.iml
+data/
+deploy/.env
+deploy/certs/
+deploy/certbot-www/
+*.log

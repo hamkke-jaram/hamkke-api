@@ -1,0 +1,104 @@
+spring:
+  application:
+    name: hamkke-jaram-api
+  profiles:
+    default: local
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none   # 스키마는 Flyway만 관리한다
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      enabled: false   # 파일 업로드를 받지 않는다 (원본 영상·음성은 기기 밖으로 나가지 않음)
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+server:
+  port: 8080
+  forward-headers-strategy: framework
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+  tomcat:
+    max-swallow-size: 64KB
+    max-http-form-post-size: 64KB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:}
+    issuer: hamkke-jaram
+    access-ttl: 30m
+    refresh-ttl: 14d
+  policy:
+    terms-version: 2026-11-v1
+    privacy-version: 2026-11-v1
+    guardian-version: 2026-11-v1
+  cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  rate-limit:
+    auth-requests-per-minute: 20
+    login-failures-before-lock: 5
+    login-lock-duration: 15m
+
+---
+# 로컬 개발: 파일 기반 H2(MySQL 호환 모드). 도커 없이 바로 실행된다.
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:h2:file:./data/local;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE
+    username: sa
+    password: ""
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+app:
+  jwt:
+    secret: ${JWT_SECRET:local-dev-only-secret-change-me-0123456789}
+  cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  rate-limit:
+    auth-requests-per-minute: 200
+
+---
+# 운영: MySQL 8. 모든 비밀값은 환경변수로만 주입한다.
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: jdbc:mysql://${DB_HOST:mysql}:${DB_PORT:3306}/${DB_NAME:hamkke}?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+logging:
+  level:
+    root: INFO
