@@ -6,7 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
@@ -22,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -40,6 +43,7 @@ class ApiFlowIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper om;
+    @Autowired JdbcTemplate jdbc;
 
     // ---------- helpers ----------
 
@@ -110,6 +114,33 @@ class ApiFlowIntegrationTest {
     }
 
     @Test
+    void emergencyNumbersAreSeparateOneTapEntries() throws Exception {
+        mvc.perform(get("/api/v1/support-resources")).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].phone").value("119"))
+                .andExpect(jsonPath("$[0].category").value("EMERGENCY"))
+                .andExpect(jsonPath("$[1].phone").value("112"))
+                .andExpect(jsonPath("$[1].category").value("EMERGENCY"))
+                .andExpect(jsonPath("$[2].phone").value("109"));
+    }
+
+    @Test
+    void cardSourceTitleMustHaveText() {
+        String insert = "INSERT INTO coaching_cards (id, code, title, body, situation, metric_focus, evidence_tag, "
+                + "source_title, source_url, author, reviewer, active) VALUES (?, ?, '제목', '본문', 'ANY', 'GENERAL', "
+                + "'근거 태그', ?, NULL, '함께자람 콘텐츠팀', NULL, FALSE)";
+        assertThatThrownBy(() -> jdbc.update(insert, 9001, "TEST-BLANK", "   "))
+                .isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> jdbc.update(insert, 9002, "TEST-EMPTY", ""))
+                .isInstanceOf(DataAccessException.class);
+        // 같은 문장에 출처만 채우면 들어간다(비활성 카드라 다른 테스트의 카드 선택에 영향 없음).
+        try {
+            assertThat(jdbc.update(insert, 9003, "TEST-OK", "출처 제목")).isEqualTo(1);
+        } finally {
+            jdbc.update("DELETE FROM coaching_cards WHERE id IN (9001, 9002, 9003)");
+        }
+    }
+
+    @Test
     void signupRequiresConsents() throws Exception {
         var req = Map.of("email", "noconsent@example.com", "password", "abcd1234", "displayName", "a",
                 "role", "PARENT", "consents", new Object[]{Map.of("type", "TERMS_OF_SERVICE", "version", V)});
@@ -135,6 +166,46 @@ class ApiFlowIntegrationTest {
         var req = Map.of("nickname", "하늘", "birthYearMonth", "2023-05",
                 "guardianConsent", Map.of("agreed", true, "version", V));
         mvc.perform(body(auth(post("/api/v1/children"), t), req)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void patchChildRejectsBlankNicknameButKeepsItOptional() throws Exception {
+        String t = token(signup("PARENT"));
+        long childId = createChild(t);
+        String path = "/api/v1/children/" + childId;
+        mvc.perform(body(auth(patch(path), t), Map.of("nickname", "   ")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        mvc.perform(body(auth(patch(path), t), Map.of("nickname", "　"))) // 전각 공백
+                .andExpect(status().isBadRequest());
+        mvc.perform(body(auth(patch(path), t), Map.of("nickname", "")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(auth(get(path), t)).andExpect(jsonPath("$.nickname").value("하늘"));
+
+        // 별칭을 빼고 보내면 별칭은 그대로, 보낸 항목만 바뀐다
+        String birth = LocalDate.now().minusYears(2).toString().substring(0, 7);
+        mvc.perform(body(auth(patch(path), t), Map.of("birthYearMonth", birth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("하늘"))
+                .andExpect(jsonPath("$.birthYearMonth").value(birth));
+        mvc.perform(body(auth(patch(path), t), Map.of("nickname", " 바다 ")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("바다"));
+    }
+
+    @Test
+    void expiredInviteCodeIsRejected() throws Exception {
+        String parent = token(signup("PARENT"));
+        String teacher = token(signup("TEACHER"));
+        long childId = createChild(parent);
+        String code = json(mvc.perform(auth(post("/api/v1/children/" + childId + "/invite-codes"), parent))
+                .andExpect(status().isCreated()).andReturn()).get("code").asText();
+        // 72시간이 지난 상태를 만든다: 만료 시각을 발급 시각으로 당긴다(시간대와 상관없이 항상 과거).
+        assertThat(jdbc.update("UPDATE invite_codes SET expires_at = created_at WHERE code = ?", code)).isEqualTo(1);
+        mvc.perform(body(auth(post("/api/v1/teacher/links"), teacher), Map.of("code", code)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVITE_CODE_INVALID"));
+        mvc.perform(auth(get("/api/v1/teacher/children"), teacher)).andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test

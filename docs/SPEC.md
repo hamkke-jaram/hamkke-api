@@ -1,8 +1,8 @@
 # 함께자람 개발 명세서 (MVP · 0단계)
 
-- 문서 버전: v1.0 (2026-11-06)
+- 문서 버전: v1.1 (2026-11-12) — 4장 요구사항을 [requirements.md](requirements.md)로 분리, 카드 선택 대체 규칙(6.4)·에러 코드 표(9장) 보강
 - 근거 문서: 「함께자람 서비스 개발 문서」(2026-11-04)
-- 함께 보는 문서: [API 명세](api.md) · [지표 정의서](https://github.com/hamkke-jaram/hamkke-ai/blob/main/docs/metrics.md) · [배포 가이드](deploy.md)
+- 함께 보는 문서: [기능 요구사항(ID)](requirements.md) · [API 명세](api.md) · [지표 정의서](https://github.com/hamkke-jaram/hamkke-ai/blob/main/docs/metrics.md) · [배포 가이드](deploy.md)
 
 이 문서는 서비스 개발 문서의 범위를 **구현 가능한 수준의 요구사항·구조·규칙**으로 옮긴 것이다. 개발 문서에서 "미정"으로 남은 항목은 이 명세에서 결정하고 근거를 남겼다(1.3절). 팀 회의에서 결정이 바뀌면 이 문서를 먼저 고친다.
 
@@ -53,19 +53,21 @@ MVP는 아래 흐름이 **끊김 없이 실제로 동작**하는 것을 목표�
 |---|---|---|
 | 원본 영상·음성은 기기 밖으로 나가지 않음 | 백엔드에 multipart/파일 업로드 엔드포인트 없음. `spring.servlet.multipart.enabled=false`. 요청 본문 64KB 제한. 프런트는 `File`을 `ObjectURL`/`ArrayBuffer`로만 읽고 `fetch`에 넣지 않음. 분석 후 ObjectURL 해제 | 백엔드 테스트(multipart 요청 거부), 코드 리뷰 |
 | 의료기기 경계 | 진단·선별·치료 기능 없음. 분석 결과를 의료진에 보내는 기능 없음 | 표현 검수 스크립트 |
-| 표현 규칙 | 코드·필드명·enum·에러 메시지·화면 문구에 금지 표현 사용 금지 (예: `riskScore` ✕ → `changeTrend` ○) | `scripts/check-expressions.mjs` (CI에서 실행) |
+| 표현 규칙 | 코드·필드명·enum·에러 메시지·화면 문구에 금지 표현 사용 금지 (예: `riskScore` ✕ → `changeTrend` ○) | 저장소마다 있는 `scripts/check-expressions.mjs` (CI에서 실행) |
 | 주의 문구 | 모든 부모·교사 화면 하단과 결과 화면에 고정 문구 표시 | 화면 점검 |
 | 아동 개인정보 | 법정대리인 동의 없이 아동 저장 불가(서버에서 거부). 실명·주민번호 필드 없음(별칭·생년월만) | 백엔드 테스트 |
 | 공유 권한 | 기본값 전부 비공개. 교사는 연결 + 공유 켜진 항목만 조회 | 백엔드 테스트 |
 | 안전 기능 무료 | 상담·기관 안내 API는 인증 없이도 제공 | 백엔드 테스트 |
-| 코칭 카드 | AI가 문장을 만들지 않음. DB의 카드만 전달. 출처 없는 카드는 저장 불가(NOT NULL + 검증) | 스키마 제약 |
+| 코칭 카드 | AI가 문장을 만들지 않음. DB의 카드만 전달. 출처 없는 카드는 저장 불가(NOT NULL + 빈 문자열·스페이스만 있는 출처 제목을 막는 CHECK, V4. `TRIM`은 스페이스만 지우므로 탭·줄바꿈만 있는 제목은 이 CHECK로 걸러지지 않음 → 카드 등록 검수에서 확인) | 스키마 제약, 백엔드 테스트 |
 | 위기 대응 | 상담을 대신하지 않음. 109·1577-0199 등으로 연결만 함. 비밀보장·기관 개입 여부를 단정하는 문구 금지 | 화면 점검 |
 | 화면 설계 | 실시간 수치 대신 주간 요약, 칭찬 중심 문구, 비교·순위·점수 표시 없음 | 화면 점검 |
 
-### 2.1 금지 표현 목록 (코드 상수 `ExpressionRules`)
+### 2.1 금지 표현 목록 (검수 스크립트 `scripts/check-expressions.mjs`)
 
-`진단, 판별, 선별, 위험도, 치료, 증상, 예방, 경계선 지능, 정확도` 및 영문 `diagnos*, screening, risk, treatment, symptom, therapy, accuracy`.
-예외(고유명사): `자살예방상담전화`, `K-DST 발달선별검사`(외부 링크 이름) — 검수 스크립트 허용 목록에 둔다.
+금지 목록은 코드 상수가 아니라 저장소마다 있는 검수 스크립트에 있다: `hamkke-api/scripts/check-expressions.mjs`, `hamkke-web/scripts/check-expressions.mjs`, `hamkke-ai/scripts/check-expressions.mjs`. 세 파일의 목록은 같게 유지한다.
+
+`진단, 판별, 선별, 위험도, 위험 예측, 치료, 증상, 예방, 경계선 지능, 정확도, WHO 프로그램, 외부 프로그램 상표명(Hanen·ESDM·PACT·JASPER)` 및 영문 `diagnos*, screening, risk, treatment, symptom, therap*, accuracy, predict, prevent, borderline`.
+예외(고유명사): `자살예방상담전화`, `K-DST 발달선별검사`(외부 링크 이름) — 검수 스크립트 허용 목록에 둔다. 바꿀 수 없는 웹 API 이름(예: 프런트의 `preventDefault()`)만 해당 저장소 허용 목록에 좁게 둔다.
 
 ### 2.2 주의 문구 (고정)
 
@@ -108,74 +110,7 @@ hamkke-web은 hamkke-ai를 태그 단위 git 의존성(`github:hamkke-jaram/hamk
 
 ## 4. 기능 요구사항 (ID)
 
-우선순위: **M** = MVP 필수, **S** = MVP 포함(시연 품질), **L** = 이후.
-
-### 4.1 계정·동의 (ACC)
-
-| ID | 요구사항 | 우선 |
-|---|---|---|
-| ACC-01 | 이메일·비밀번호(8~64자, 영문+숫자 포함)·이름(표시명)·역할로 가입한다. 이메일은 소문자로 정규화하고 중복을 거부한다 | M |
-| ACC-02 | 가입 시 `TERMS_OF_SERVICE`, `PRIVACY_POLICY` 동의(현재 버전)가 없으면 거부한다. 동의는 유형·버전·시각과 함께 기록한다 | M |
-| ACC-03 | 로그인 시 액세스 토큰(JWT, 30분)과 리프레시 토큰(불투명 난수, 14일)을 발급한다. 리프레시 토큰은 SHA-256 해시로만 저장한다 | M |
-| ACC-04 | 리프레시는 회전 방식(사용한 토큰 폐기 후 새로 발급). 폐기된 토큰 재사용 시 해당 사용자의 모든 리프레시 토큰을 폐기한다 | M |
-| ACC-05 | 로그인 실패 5회/15분 시 해당 이메일의 로그인을 15분 제한한다(IP 기준 분당 요청 제한도 둔다) | S |
-| ACC-06 | 회원 탈퇴 시 비밀번호를 확인하고, 부모는 본인 아동과 그 아동의 모든 데이터, 교사는 본인이 쓴 목표·메모·연결을 즉시 삭제한다 | M |
-| ACC-07 | 내 동의 이력을 조회할 수 있다 | S |
-
-### 4.2 아동 (CHD)
-
-| ID | 요구사항 | 우선 |
-|---|---|---|
-| CHD-01 | 부모만 아동을 등록한다. 입력은 별칭(1~20자)·생년월(YYYY-MM, 0~6세 범위) 뿐이다 | M |
-| CHD-02 | 등록 요청에 법정대리인 동의(`CHILD_DATA_GUARDIAN`, 현재 버전, agreed=true)가 없으면 저장하지 않는다(422 `GUARDIAN_CONSENT_REQUIRED`) | M |
-| CHD-03 | 아동 등록과 동시에 공유 설정(전부 꺼짐)을 만든다 | M |
-| CHD-04 | 아동 삭제 = 법정대리인 동의 철회. 지표·카드 이력·공유 설정·초대 코드·교사 연결·목표·메모를 함께 삭제하고 동의 기록에 철회 시각을 남긴다 | M |
-| CHD-05 | 부모 1명당 아동 최대 5명 | S |
-
-### 4.3 상호작용 기록 (REC)
-
-| ID | 요구사항 | 우선 |
-|---|---|---|
-| REC-01 | 부모는 본인 아동에 대해 지표 JSON을 저장한다. 파일·바이너리는 받지 않는다 | M |
-| REC-02 | 값 검증: 분석 길이 10~1800초, 함께 노는 시간 0~분석 길이, 반응 시간 0~10초 또는 null, 아이 발화 수 ≥ 반응된 발화 수, 울음 횟수 0~200, `specVersion`은 지원 목록(`metrics-v1`)만 | M |
-| REC-03 | 같은 `clientRecordId`(UUID)로 다시 보내면 새로 만들지 않고 기존 결과를 돌려준다(재전송 안전) | M |
-| REC-04 | 저장 직후 변화 추이(`changeTrend`)를 계산하고 코칭 카드를 선택해 응답에 포함한다 | M |
-| REC-05 | 주간 요약: 최근 N주(기본 8, 최대 26)를 ISO 주 단위로 묶어 지표 평균과 기록 수를 준다 | M |
-| REC-06 | 부모는 본인이 저장한 기록을 삭제할 수 있다 | S |
-
-### 4.4 코칭 카드 (CRD)
-
-| ID | 요구사항 | 우선 |
-|---|---|---|
-| CRD-01 | 카드는 제목·본문·적용 상황·관련 지표·근거 태그·출처(제목, 링크 선택)·작성자·검수자(선택)를 가진다. 출처 제목은 필수 | M |
-| CRD-02 | 시드 카드는 마이그레이션으로 넣는다(16장) | M |
-| CRD-03 | 카드 선택은 `CardSelector` 인터페이스로 분리하고, 기본 구현은 규칙 기반(5장)이다 | M |
-| CRD-04 | 전체 추이가 `NEEDS_ATTENTION`이면 카드 대신 상담·기관 안내를 응답한다 | M |
-| CRD-05 | 카드 전달 이력을 저장하고, 같은 아동에게 최근 전달한 카드는 후보 중 가장 뒤로 미룬다 | M |
-| CRD-06 | 부모는 전달받은 카드에 "해봤어요"를 표시할 수 있다 | S |
-| CRD-07 | 검수자가 없는 카드는 화면에 "전문가 검수 진행 중"으로 표시한다 | M |
-
-### 4.5 공유·연계 (SHR / TCH)
-
-| ID | 요구사항 | 우선 |
-|---|---|---|
-| SHR-01 | 공유 항목: 함께 노는 시간, 반응 시간, 울음 횟수, 받은 코칭 카드. 기본값은 모두 꺼짐 | M |
-| SHR-02 | 부모는 초대 코드(혼동 문자 제외 8자리, 72시간, 1회용)를 발급한다. 아동당 유효 코드 최대 3개 | M |
-| SHR-03 | 부모는 연결된 교사 목록을 보고 연결을 해제할 수 있다 | M |
-| TCH-01 | 교사는 초대 코드로 아동과 연결한다. 만료·사용됨·없는 코드는 같은 에러로 응답한다(코드 추측 방지) | M |
-| TCH-02 | 교사는 연결된 아동 목록(별칭·만 나이 개월)을 본다 | M |
-| TCH-03 | 교사는 아동 목표를 만들고 고치고(상태: 진행 중/이뤘어요/보관) 지운다. 본인이 쓴 목표만 수정·삭제 | M |
-| TCH-04 | 교사는 관찰 메모(1~1000자, 관찰일)를 남기고 본인 메모를 지운다 | M |
-| TCH-05 | 교사는 공유가 켜진 지표만 주간 요약으로 본다. 꺼진 항목은 응답에서 아예 빠진다(null도 아님) | M |
-| TCH-06 | 부모는 본인 아동의 목표와 관찰 메모를 읽을 수 있다 | M |
-| TCH-07 | 교사 연결이 해제되면 그 교사는 목표·메모·요약 모두 접근할 수 없다(작성한 기록은 남는다) | M |
-
-### 4.6 안내 (SUP)
-
-| ID | 요구사항 | 우선 |
-|---|---|---|
-| SUP-01 | 상담·기관 연결 안내 목록(이름, 설명, 전화, 링크, 운영 시간)을 인증 없이 제공한다 | M |
-| SUP-02 | 정책 버전·주의 문구를 인증 없이 제공한다 | M |
+ID별 백엔드 기능 요구사항(ACC·CHD·REC·CRD·SHR·TCH·SUP)은 **[requirements.md](requirements.md)** 로 옮겼다. 요구사항을 고칠 때는 그 문서를 고친다.
 
 ---
 
@@ -191,13 +126,13 @@ hamkke-web은 hamkke-ai를 태그 단위 git 의존성(`github:hamkke-jaram/hamk
 | `children` | id, parent_id, nickname, birth_year_month(CHAR 7), created_at | 실명·주민번호 없음 |
 | `share_settings` | child_id(PK), joint_play, response_latency, distress, coaching_cards, updated_at | 기본 false |
 | `interaction_records` | id, child_id, client_record_id(UQ with child), recorded_at, analyzed_seconds, joint_play_seconds, response_latency_sec, child_bid_count, responded_bid_count, distress_count, model_version, spec_version, change_trend, created_at | |
-| `coaching_cards` | id, code(UQ), title, body, situation, metric_focus, evidence_tag, source_title, source_url, author, reviewer, active | |
+| `coaching_cards` | id, code(UQ), title, body, situation, metric_focus, evidence_tag, source_title, source_url, author, reviewer, active | `source_title`은 빈 문자열·스페이스만으로 둘 수 없음(CHECK `ck_cards_source_title`, 탭·줄바꿈은 거르지 않음) |
 | `card_deliveries` | id, child_id, card_id, record_id, delivered_at, tried_at | |
 | `invite_codes` | id, child_id, code(UQ), created_at, expires_at, used_at, used_by | |
 | `teacher_links` | id, teacher_id, child_id, linked_at (UQ teacher+child) | 해제 시 행 삭제 |
 | `child_goals` | id, child_id, teacher_id, title, description, status, created_at, updated_at | |
 | `observation_notes` | id, child_id, teacher_id, content, observed_on, created_at | |
-| `support_resources` | id, name, description, phone, url, hours, category, sort_order | |
+| `support_resources` | id, name, description, phone, url, hours, category, sort_order | 전화 1개당 1행(119·112도 각각 한 행) |
 
 열거형 값(표현 규칙 준수):
 
@@ -237,17 +172,27 @@ hamkke-web은 hamkke-ai를 태그 단위 git 의존성(`github:hamkke-jaram/hamk
    - `FIRST_RECORD`: `GENERAL`
 3. 후보 = `active` 카드 중 (situation = 추이 또는 `ANY`) AND (metric_focus = 관련 지표 또는 `GENERAL`). 관련 지표가 정확히 맞는 카드를 먼저.
 4. 이 아동이 최근 받은 카드 3장은 다른 후보가 있으면 제외한다. 남은 후보를 (관련 지표 정확히 일치 → 상황 정확히 일치 → **전달한 적 없거나 가장 오래전에 전달** → id) 순으로 정렬해 1장.
-5. 후보가 없으면 `GENERAL`·`ANY` 카드로 대체. 그래도 없으면 카드 없이 응답(서비스는 계속 동작).
+5. 후보가 없으면 `GENERAL`·`ANY` 카드로 대체. 그래도 없으면 선택기는 빈 결과를 돌려주고, `CoachingService`가 6.4의 대체 규칙으로 활성 카드 1장을 고른다(활성 카드가 없을 때만 카드 없이 응답).
 
-### 6.4 인터페이스 (AI 교체 대비)
+### 6.4 인터페이스와 장애 시 대체 규칙
 
 ```java
 public interface CardSelector {
-    Optional<Long> select(CardSelectionContext ctx); // 카드 ID만 돌려준다. 문장을 만들지 않는다.
+    Optional<Long> select(Context ctx); // 카드 ID만 돌려준다. 문장을 만들지 않는다.
+    record Context(long childId, ChangeTrend trend, MetricFocus focus, MetricChanges changes,
+                   List<CoachingCard> activeCards, Map<Long, Instant> lastDeliveredAt) {}
 }
 ```
 
-외부 AI 선택 서비스를 붙일 때도 입력은 지표 요약·추이, 출력은 카드 ID뿐이며, 실패·지연(1초 초과) 시 규칙 기반으로 대체한다.
+외부 AI 선택 서비스를 붙일 때도 입력은 지표 요약·추이, 출력은 카드 ID뿐이다. 선택 결과는 `CoachingService`가 아래 순서로 처리한다(CRD-08).
+
+1. 기본 선택기가 예외를 던지거나, 활성 카드에 없는(모르는·비활성) ID를 주거나, 아무 카드도 고르지 않으면 경고 로그를 남기고 다음 단계로 간다.
+2. 기본 선택기가 규칙 기반이 아니면 규칙 기반 선택기(6.3)로 다시 고른다.
+3. 그래도 없으면 고정 규칙: 상황이 정확히 맞는 `GENERAL` 카드 → `ANY`·`GENERAL` 카드 → 활성 카드 중 id가 가장 작은 카드.
+4. 활성 카드가 한 장도 없을 때만 카드 없이 응답한다. 어느 단계도 예외를 밖으로 던지지 않으므로 카드 선택 때문에 기록 저장이 실패하지 않는다.
+5. `NEEDS_ATTENTION`은 선택기를 부르지 않고 상담·기관 안내를 응답한다(대체 규칙 대상 아님).
+
+외부 선택 서비스의 지연은 그 클라이언트가 1초 제한 시간을 두고 넘으면 예외를 던지는 방식으로 1단계에 합류시킨다.
 
 ---
 
@@ -292,11 +237,15 @@ public interface CardSelector {
 | 401 | `UNAUTHORIZED`, `INVALID_CREDENTIALS`, `INVALID_REFRESH_TOKEN` |
 | 403 | `FORBIDDEN_ROLE` |
 | 404 | `NOT_FOUND` |
-| 409 | `EMAIL_TAKEN`, `ALREADY_LINKED` |
+| 405 | `METHOD_NOT_ALLOWED` |
+| 409 | `EMAIL_TAKEN`, `ALREADY_LINKED`, `DUPLICATE_REQUEST` (DB 제약 충돌. 예: 동시에 들어온 같은 요청) |
 | 413 | `PAYLOAD_TOO_LARGE` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` (파일 업로드 시도 포함) |
 | 422 | `CONSENT_REQUIRED`, `GUARDIAN_CONSENT_REQUIRED`, `INVITE_CODE_INVALID`, `CHILD_LIMIT_REACHED`, `INVITE_LIMIT_REACHED` |
 | 429 | `TOO_MANY_ATTEMPTS` |
+| 500 | `INTERNAL_ERROR` |
+
+위 표는 `common/ErrorCode.java`의 모든 값을 담는다. 코드를 추가하면 이 표도 함께 고친다.
 
 ---
 

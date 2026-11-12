@@ -8,7 +8,8 @@
 
 이 저장소가 팀 공통 문서를 가진다.
 
-- [개발 명세서](docs/SPEC.md) — 범위, 원칙→구현 규칙, 요구사항 ID, 데이터 모델, 카드 선택 규칙, 보안
+- [개발 명세서](docs/SPEC.md) — 범위, 원칙→구현 규칙, 데이터 모델, 카드 선택 규칙·장애 시 대체 규칙, 보안, 에러 코드
+- [기능 요구사항(ID)](docs/requirements.md) — ACC·CHD·REC·CRD·SHR·TCH·SUP 요구사항 ID
 - [API 명세](docs/api.md)
 - [배포 가이드](docs/deploy.md)
 - 지표 정의서는 AI 저장소: [hamkke-ai/docs/metrics.md](https://github.com/hamkke-jaram/hamkke-ai/blob/main/docs/metrics.md)
@@ -23,8 +24,8 @@
 
 ```bash
 ./gradlew bootRun     # local 프로필: H2 파일 DB, 도커 불필요 → http://localhost:8080/swagger-ui.html
-./gradlew test        # 단위 + 통합(전체 흐름·권한·동의·업로드 거부)
-node scripts/check-expressions.mjs
+./gradlew test        # 단위(추이·카드 선택·대체 규칙·초대 코드 만료) + 통합(전체 흐름·권한·동의·업로드 거부)
+node scripts/check-expressions.mjs   # 표현 규칙 검수(src/main·src/test·scripts)
 ```
 
 ## 지켜야 할 원칙 (요약)
@@ -33,7 +34,8 @@ node scripts/check-expressions.mjs
 - 아동 정보는 법정대리인 동의 없이 저장하지 않는다(422).
 - 가정 기록은 기본 비공개. 교사는 부모가 켠 항목만 주 단위로 본다.
 - 상담·기관 안내는 로그인 없이 제공한다.
-- 코칭 카드는 사람이 쓴 카드만 전달하고 출처가 필수다.
+- 코칭 카드는 사람이 쓴 카드만 전달하고 출처가 필수다. 카드 선택이 실패해도 대체 규칙으로 카드를 전달하고 기록 저장은 막지 않는다.
+- DB 스키마는 Flyway가 관리한다. 새 변경은 `src/main/resources/db/migration/V{n}__*.sql`로 추가하고 적용된 파일은 고치지 않는다.
 
 ## 배포
 

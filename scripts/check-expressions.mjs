@@ -1,19 +1,22 @@
 #!/usr/bin/env node
-// 표현 규칙 검수 (SPEC 2.1). 코드·화면 문구·시드 데이터에 금지 표현이 있으면 실패한다.
+// 표현 규칙 검수 (SPEC 2.1). 코드·화면 문구·시드 데이터·테스트에 금지 표현이 있으면 실패한다.
 // 사용: node scripts/check-expressions.mjs   (CI에서 실행)
 import { readdir, readFile } from 'node:fs/promises';
-import { extname, join, relative } from 'node:path';
+import { extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = join(fileURLToPath(import.meta.url), '..', '..');
-const TARGETS = ['src/main'];
-const EXT = new Set(['.java', '.sql', '.yml', '.ts', '.tsx', '.css', '.html', '.webmanifest', '.json']);
+const self = resolve(fileURLToPath(import.meta.url));
+const root = join(self, '..', '..');
+const TARGETS = ['src/main', 'src/test', 'scripts'];
+const EXT = new Set(['.java', '.sql', '.yml', '.ts', '.tsx', '.js', '.mjs', '.css', '.html', '.webmanifest', '.json']);
 
 const FORBIDDEN = [
-  /진단/, /판별/, /선별/, /위험도/, /치료/, /증상/, /예방/, /경계선\s*지능/, /정확도/,
-  /diagnos/i, /screening/i, /\brisk/i, /treatment/i, /symptom/i, /therap/i, /accuracy/i,
+  /진단/, /판별/, /선별/, /위험도/, /위험\s*예측/, /치료/, /증상/, /예방/, /경계선\s*지능/, /정확도/,
+  /WHO\s*프로그램/, /\b(Hanen|ESDM|PACT|JASPER)\b/,
+  /diagnos/i, /screening/i, /risk/i, /treatment/i, /symptom/i, /therap/i, /accuracy/i,
+  /predict/i, /prevent/i, /borderline/i,
 ];
-// 고유명사(외부 기관·서비스 이름)는 허용한다.
+// 고유명사(외부 기관·서비스 이름)만 좁게 허용한다.
 const ALLOW = [/자살예방상담전화/g, /K-DST\s*발달선별검사/g];
 
 async function* walk(p) {
@@ -35,7 +38,7 @@ async function* walk(p) {
 let problems = 0;
 for (const t of TARGETS) {
   for await (const file of walk(join(root, t))) {
-    if (!EXT.has(extname(file))) continue;
+    if (!EXT.has(extname(file)) || resolve(file) === self) continue; // 검수기 자신은 금지 표현 목록을 담고 있다
     const lines = (await readFile(file, 'utf8')).split(/\r?\n/);
     lines.forEach((raw, i) => {
       let line = raw;
