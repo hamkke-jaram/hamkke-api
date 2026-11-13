@@ -6,6 +6,8 @@ import kr.hamkkejaram.card.CardDtos.Guidance;
 import kr.hamkkejaram.common.ApiException;
 import kr.hamkkejaram.record.ChangeTrend;
 import kr.hamkkejaram.record.InteractionRecord;
+import kr.hamkkejaram.record.MetricChange;
+import kr.hamkkejaram.record.MetricChanges;
 import kr.hamkkejaram.record.TrendCalculator;
 import kr.hamkkejaram.support.SupportController;
 import org.slf4j.Logger;
@@ -66,6 +68,29 @@ public class CoachingService {
             return new Coaching(null, null); // 활성 카드가 한 장도 없을 때만
         }
         CardDelivery delivery = deliveries.save(new CardDelivery(record.getChildId(), card.get(), record.getId(),
+                clock.instant()));
+        return new Coaching(DeliveryResponse.from(delivery), null);
+    }
+
+    /**
+     * AI 관찰 기록(가정)에 맞는 카드 1장을 고르고 전달 이력을 남긴다(docs/ai-observation.md 7장).
+     * 초점은 아이 모습 태그에서 정해져 들어오고, 상황은 ANY·STEADY 카드에서 고른다.
+     * 최근 받은 3장 건너뛰기와 장애 시 대체 규칙은 지표 기록과 같다. 선택이 실패해도 관찰 기록 저장은 막지 않는다.
+     */
+    @Transactional
+    public Coaching deliverForObservation(long childId, long aiObservationId, MetricFocus focus) {
+        List<CoachingCard> active = cards.findByActiveTrueOrderByIdAsc();
+        Map<Long, Instant> last = new HashMap<>();
+        for (Object[] row : deliveries.lastDeliveredByCard(childId)) {
+            last.put((Long) row[0], (Instant) row[1]);
+        }
+        MetricChanges none = new MetricChanges(MetricChange.NA, MetricChange.NA, MetricChange.NA);
+        CardSelector.Context ctx = new CardSelector.Context(childId, ChangeTrend.STEADY, focus, none, active, last);
+        Optional<CoachingCard> card = selectWithFallback(ctx);
+        if (card.isEmpty()) {
+            return new Coaching(null, null); // 활성 카드가 한 장도 없을 때만
+        }
+        CardDelivery delivery = deliveries.save(CardDelivery.forAiObservation(childId, card.get(), aiObservationId,
                 clock.instant()));
         return new Coaching(DeliveryResponse.from(delivery), null);
     }

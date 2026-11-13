@@ -59,11 +59,20 @@ app:
     terms-version: 2026-11-v1
     privacy-version: 2026-11-v1
     guardian-version: 2026-11-v1
+    ai-analysis-version: 2026-11-v1   # 'AI 관찰 기록' 동의 문서 버전 (docs/ai-observation.md)
   cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   rate-limit:
     auth-requests-per-minute: 20
     login-failures-before-lock: 5
     login-lock-duration: 15m
+    ai-sessions-per-hour: 20
+  # AI 관찰 기록(docs/ai-observation.md). 꺼져 있어도 지표 3개 흐름은 그대로 동작한다.
+  # shared-secret은 hamkke-ai 서버와 같은 값(32바이트 이상)이며 JWT_SECRET과 달라야 한다.
+  ai:
+    enabled: ${AI_ENABLED:false}
+    shared-secret: ${AI_SHARED_SECRET:}
+    max-frames: 6
+    session-ttl: 10m
 
 ---
 # 로컬 개발: 파일 기반 H2(MySQL 호환 모드). 도커 없이 바로 실행된다.
@@ -86,6 +95,9 @@ app:
   cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
   rate-limit:
     auth-requests-per-minute: 200
+  ai:
+    enabled: ${AI_ENABLED:true}
+    shared-secret: ${AI_SHARED_SECRET:local-dev-only-ai-shared-secret-change-me-0123456789}
 
 ---
 # 운영: MySQL 8. 모든 비밀값은 환경변수로만 주입한다.

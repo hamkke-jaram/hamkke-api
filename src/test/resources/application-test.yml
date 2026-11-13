@@ -8,3 +8,6 @@ app:
     secret: test-secret-test-secret-test-secret-0123
   rate-limit:
     auth-requests-per-minute: 1000
+  ai:
+    enabled: true
+    shared-secret: test-ai-shared-secret-test-ai-shared-secret-0123

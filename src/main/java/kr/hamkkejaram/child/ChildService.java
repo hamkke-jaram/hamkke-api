@@ -86,13 +86,15 @@ public class ChildService {
         return ChildResponse.from(child, today());
     }
 
-    /** 아동 삭제 = 법정대리인 동의 철회. 관련 데이터는 DB의 ON DELETE CASCADE로 함께 지워진다. */
+    /**
+     * 아동 삭제 = 법정대리인 동의 철회. 관련 데이터(AI 관찰 기록 포함)는 DB의 ON DELETE CASCADE로 함께 지워진다.
+     * 그 아동에게 걸린 다른 동의(AI 관찰 기록 동의)에도 철회 시각을 남긴다.
+     */
     @Transactional
     public void delete(AuthUser user, long childId) {
         Child child = access.requireOwner(user, childId);
         Instant now = clock.instant();
-        consents.findByChildIdAndTypeAndRevokedAtIsNull(child.getId(), ConsentType.CHILD_DATA_GUARDIAN)
-                .forEach(c -> c.revoke(now));
+        consents.findByChildIdAndRevokedAtIsNull(child.getId()).forEach(c -> c.revoke(now));
         consents.flush();
         children.delete(child);
     }

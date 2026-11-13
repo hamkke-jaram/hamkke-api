@@ -2,6 +2,7 @@ package kr.hamkkejaram;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import kr.hamkkejaram.aiobs.TestReceipts;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -101,6 +102,24 @@ class ApiFlowIntegrationTest {
                 .andExpect(status().is(expectedStatus)).andReturn());
     }
 
+    /** AI 동의 → 분석 토큰 → (AI 서버 역할로 서명한) 영수증 저장. 저장된 관찰 기록 id를 돌려준다. */
+    private long saveAiObservation(String token, long userId, long childId) throws Exception {
+        mvc.perform(body(auth(put("/api/v1/children/" + childId + "/ai-consent"), token),
+                Map.of("agreed", true, "version", V))).andExpect(status().isOk());
+        String session = json(mvc.perform(auth(post("/api/v1/children/" + childId + "/ai-sessions"), token))
+                .andExpect(status().isCreated()).andReturn()).get("token").asText();
+        Map<String, Object> claims = TestReceipts.claims(userId, childId, "HOME");
+        claims.put("jti", TestReceipts.payload(session).get("jti").asText());
+        JsonNode saved = json(mvc.perform(body(auth(post("/api/v1/children/" + childId + "/ai-observations"), token),
+                Map.of("receipt", TestReceipts.sign(claims)))).andExpect(status().isCreated()).andReturn());
+        assertThat(saved.at("/coaching/delivery/card/id").asLong()).isPositive();
+        return saved.at("/observation/id").asLong();
+    }
+
+    private int rows(String table, long childId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE child_id = ?", Integer.class, childId);
+    }
+
     // ---------- tests ----------
 
     @Test
@@ -108,7 +127,10 @@ class ApiFlowIntegrationTest {
         mvc.perform(get("/api/v1/support-resources")).andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].name").exists());
         mvc.perform(get("/api/v1/policies")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.disclaimer").value(org.hamcrest.Matchers.containsString("의료기기가 아니며")));
+                .andExpect(jsonPath("$.disclaimer").value(org.hamcrest.Matchers.containsString("의료기기가 아니며")))
+                .andExpect(jsonPath("$.guardianVersion").value(V))
+                .andExpect(jsonPath("$.aiAnalysisVersion").value(V))
+                .andExpect(jsonPath("$.aiObservationEnabled").value(true));
         mvc.perform(get("/api/v1/children")).andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
@@ -403,21 +425,41 @@ class ApiFlowIntegrationTest {
 
     @Test
     void deletingChildAndAccountRemovesData() throws Exception {
-        String parent = token(signup("PARENT"));
+        JsonNode parentTokens = signup("PARENT");
+        String parent = token(parentTokens);
+        long parentId = parentTokens.at("/user/id").asLong();
         long childId = createChild(parent);
         postRecord(parent, childId, metrics(UUID.randomUUID().toString(), Instant.now(), 120, 60, 1.2, 2), 201);
+        // AI 관찰 기록(글자만)과 그 기록으로 전달된 카드도 함께 지워져야 한다
+        saveAiObservation(parent, parentId, childId);
+        assertThat(rows("ai_observations", childId)).isEqualTo(1);
+        assertThat(rows("card_deliveries", childId)).isEqualTo(2);
+
         mvc.perform(auth(delete("/api/v1/children/" + childId), parent)).andExpect(status().isNoContent());
         mvc.perform(auth(get("/api/v1/children/" + childId), parent)).andExpect(status().isNotFound());
         mvc.perform(auth(get("/api/v1/me/consents"), parent))
-                .andExpect(jsonPath("$[?(@.type == 'CHILD_DATA_GUARDIAN')].revokedAt").isNotEmpty());
+                .andExpect(jsonPath("$[?(@.type == 'CHILD_DATA_GUARDIAN')].revokedAt").isNotEmpty())
+                .andExpect(jsonPath("$[?(@.type == 'CHILD_IMAGE_AI_ANALYSIS')].revokedAt").isNotEmpty());
+        for (String table : new String[]{"ai_observations", "card_deliveries", "interaction_records",
+                "share_settings"}) {
+            assertThat(rows(table, childId)).as(table).isZero();
+        }
 
         long child2 = createChild(parent);
         postRecord(parent, child2, metrics(UUID.randomUUID().toString(), Instant.now(), 120, 60, 1.2, 2), 201);
+        saveAiObservation(parent, parentId, child2);
+        assertThat(rows("ai_observations", child2)).isEqualTo(1);
         mvc.perform(body(auth(delete("/api/v1/me"), parent), Map.of("password", "wrong999")))
                 .andExpect(status().isUnauthorized());
         mvc.perform(body(auth(delete("/api/v1/me"), parent), Map.of("password", "abcd1234")))
                 .andExpect(status().isNoContent());
         // 탈퇴 직후 기존 액세스 토큰도 쓸 수 없다
         mvc.perform(auth(get("/api/v1/me"), parent)).andExpect(status().isUnauthorized());
+        // 탈퇴하면 아이와 함께 AI 관찰 기록·카드 이력도 남지 않는다
+        for (String table : new String[]{"ai_observations", "card_deliveries", "interaction_records"}) {
+            assertThat(rows(table, child2)).as(table).isZero();
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM children WHERE parent_id = ?", Integer.class, parentId))
+                .isZero();
     }
 }

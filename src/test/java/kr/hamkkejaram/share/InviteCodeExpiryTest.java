@@ -1,5 +1,6 @@
 package kr.hamkkejaram.share;
 
+import kr.hamkkejaram.aiobs.AiConsentService;
 import kr.hamkkejaram.child.Child;
 import kr.hamkkejaram.child.ChildAccess;
 import kr.hamkkejaram.child.ChildRepository;
@@ -42,7 +43,8 @@ class InviteCodeExpiryTest {
 
     private ShareService serviceAt(Instant now) {
         return new ShareService(mock(ChildAccess.class), children, mock(ShareSettingRepository.class), codes, links,
-                mock(UserRepository.class), mock(WeeklySummaryService.class), Clock.fixed(now, ZoneOffset.UTC));
+                mock(UserRepository.class), mock(WeeklySummaryService.class), mock(AiConsentService.class),
+                Clock.fixed(now, ZoneOffset.UTC));
     }
 
     @Test

@@ -13,6 +13,7 @@ import static kr.hamkkejaram.card.CardSituation.GROWING;
 import static kr.hamkkejaram.card.CardSituation.STEADY;
 import static kr.hamkkejaram.card.MetricFocus.CALM;
 import static kr.hamkkejaram.card.MetricFocus.GENERAL;
+import static kr.hamkkejaram.card.MetricFocus.HARD_MOMENT;
 import static kr.hamkkejaram.card.MetricFocus.JOINT_PLAY;
 import static kr.hamkkejaram.card.MetricFocus.RESPONSE;
 import static kr.hamkkejaram.card.TestCards.card;
@@ -94,6 +95,30 @@ class RuleBasedCardSelectorTest {
         Map<Long, Instant> last = Map.of(31L, T, 33L, T.plusSeconds(60), 34L, T.plusSeconds(120),
                 35L, T.plusSeconds(180));
         assertThat(selector.select(ctx(ChangeTrend.GROWING, JOINT_PLAY, cards, last))).contains(32L);
+    }
+
+    /** AI 관찰 기록(가정)의 카드: 상황은 ANY·STEADY에서, 초점은 태그로 정한 것(docs/ai-observation.md 7장). */
+    @Test
+    void hardMomentFocusPicksHardMomentCardsFromAnyOrSteady() {
+        List<CoachingCard> cards = List.of(
+                card(5, STEADY, JOINT_PLAY), card(7, ANY, GENERAL), card(14, STEADY, GENERAL),
+                card(50, GROWING, HARD_MOMENT), card(51, ANY, HARD_MOMENT), card(52, ANY, HARD_MOMENT),
+                card(53, STEADY, HARD_MOMENT));
+        // 초점이 정확히 맞는 카드 먼저, 그중 STEADY 카드 먼저. GROWING 카드(50)는 후보가 아니다.
+        assertThat(selector.select(ctx(ChangeTrend.STEADY, HARD_MOMENT, cards, Map.of()))).contains(53L);
+        // 최근 받은 3장(51·52·53)을 건너뛰면 GENERAL 카드로 넘어간다
+        Map<Long, Instant> last = Map.of(51L, T, 52L, T.plusSeconds(60), 53L, T.plusSeconds(120));
+        assertThat(selector.select(ctx(ChangeTrend.STEADY, HARD_MOMENT, cards, last))).contains(14L);
+    }
+
+    @Test
+    void hardMomentCardsAreNeverPickedForMetricRecords() {
+        List<CoachingCard> cards = List.of(card(51, ANY, HARD_MOMENT), card(7, ANY, GENERAL));
+        for (MetricFocus focus : List.of(JOINT_PLAY, RESPONSE, CALM, GENERAL)) {
+            for (ChangeTrend trend : List.of(ChangeTrend.FIRST_RECORD, ChangeTrend.GROWING, ChangeTrend.STEADY)) {
+                assertThat(selector.select(ctx(trend, focus, cards, Map.of()))).contains(7L);
+            }
+        }
     }
 
     @Test

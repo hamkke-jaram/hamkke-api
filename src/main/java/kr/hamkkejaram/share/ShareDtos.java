@@ -12,16 +12,24 @@ import java.util.List;
 public final class ShareDtos {
     private ShareDtos() {}
 
-    public enum SharedItem { JOINT_PLAY, RESPONSE_LATENCY, DISTRESS, COACHING_CARDS }
+    /**
+     * AI_OBSERVATIONS: 가정에서 만든 AI 관찰 기록을 볼 수 있다.
+     * INSTITUTION_CAPTURE: 기관에서 촬영·분석할 수 있다(공유 설정이 켜져 있고 AI 동의가 있을 때만 담긴다).
+     */
+    public enum SharedItem { JOINT_PLAY, RESPONSE_LATENCY, DISTRESS, COACHING_CARDS, AI_OBSERVATIONS,
+        INSTITUTION_CAPTURE }
 
+    /** 앞의 네 값은 필수. aiObservations·institutionCapture는 생략하면 지금 값을 그대로 둔다. */
     public record ShareSettingsRequest(@NotNull Boolean jointPlay, @NotNull Boolean responseLatency,
-                                       @NotNull Boolean distress, @NotNull Boolean coachingCards) {}
+                                       @NotNull Boolean distress, @NotNull Boolean coachingCards,
+                                       Boolean aiObservations, Boolean institutionCapture) {}
 
     public record ShareSettingsResponse(boolean jointPlay, boolean responseLatency, boolean distress,
-                                        boolean coachingCards, Instant updatedAt) {
+                                        boolean coachingCards, boolean aiObservations, boolean institutionCapture,
+                                        Instant updatedAt) {
         public static ShareSettingsResponse from(ShareSetting s) {
             return new ShareSettingsResponse(s.isJointPlay(), s.isResponseLatency(), s.isDistress(),
-                    s.isCoachingCards(), s.getUpdatedAt());
+                    s.isCoachingCards(), s.isAiObservations(), s.isInstitutionCapture(), s.getUpdatedAt());
         }
     }
 

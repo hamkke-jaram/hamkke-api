@@ -18,6 +18,13 @@ const FORBIDDEN = [
 ];
 // 고유명사(외부 기관·서비스 이름)만 좁게 허용한다.
 const ALLOW = [/자살예방상담전화/g, /K-DST\s*발달선별검사/g];
+// 검사에서 빼는 파일. 이 검수기 자신 말고는 아래 한 파일뿐이다.
+// ObservationSentenceFilter.java: VL 모델이 쓴 관찰 문장에 금지 표현이 있으면 그 문장을 버리는 필터다
+// (docs/ai-observation.md 6장). 걸러 내려면 위 FORBIDDEN과 같은 목록이 코드에 있어야 해서 이 파일만 목록을 담는다.
+// 다른 파일(테스트 포함)은 이 목록의 낱말을 직접 적지 않고 그 필터가 내주는 보기 낱말을 쓴다.
+const EXCLUDED = new Set(
+  ['src/main/java/kr/hamkkejaram/aiobs/ObservationSentenceFilter.java'].map((p) => resolve(join(root, p))),
+);
 
 async function* walk(p) {
   let entries;
@@ -39,6 +46,7 @@ let problems = 0;
 for (const t of TARGETS) {
   for await (const file of walk(join(root, t))) {
     if (!EXT.has(extname(file)) || resolve(file) === self) continue; // 검수기 자신은 금지 표현 목록을 담고 있다
+    if (EXCLUDED.has(resolve(file))) continue;
     const lines = (await readFile(file, 'utf8')).split(/\r?\n/);
     lines.forEach((raw, i) => {
       let line = raw;

@@ -18,16 +18,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * 단일 인스턴스용 메모리 기반 제한기.
  * - 인증 API: IP당 분당 요청 수 제한
  * - 로그인: 이메일당 실패 횟수가 넘으면 일정 시간 잠금
+ * - AI 분석 토큰: 사용자당 시간당 발급 수 제한
  * 서버를 여러 대로 늘리면 Redis 기반으로 바꾼다.
  */
 @Component
 public class RateLimiter {
     private static final Duration WINDOW = Duration.ofMinutes(1);
+    private static final Duration AI_SESSION_WINDOW = Duration.ofHours(1);
 
     private final AppProperties.RateLimit props;
     private final Clock clock;
     private final Map<String, Deque<Instant>> requestsByIp = new ConcurrentHashMap<>();
     private final Map<String, Deque<Instant>> failuresByEmail = new ConcurrentHashMap<>();
+    private final Map<Long, Deque<Instant>> aiSessionsByUser = new ConcurrentHashMap<>();
 
     public RateLimiter(AppProperties appProperties, Clock clock) {
         this.props = appProperties.rateLimit();
@@ -40,6 +43,19 @@ public class RateLimiter {
         synchronized (q) {
             prune(q, now.minus(WINDOW));
             if (q.size() >= props.authRequestsPerMinute()) {
+                throw new ApiException(ErrorCode.TOO_MANY_ATTEMPTS);
+            }
+            q.addLast(now);
+        }
+    }
+
+    /** AI 분석 토큰 발급: 사용자당 1시간에 정해진 횟수까지(docs/ai-observation.md 7장). */
+    public void checkAiSession(long userId) {
+        Instant now = clock.instant();
+        Deque<Instant> q = aiSessionsByUser.computeIfAbsent(userId, k -> new ArrayDeque<>());
+        synchronized (q) {
+            prune(q, now.minus(AI_SESSION_WINDOW));
+            if (q.size() >= props.aiSessionsPerHour()) {
                 throw new ApiException(ErrorCode.TOO_MANY_ATTEMPTS);
             }
             q.addLast(now);
@@ -80,6 +96,12 @@ public class RateLimiter {
         failuresByEmail.entrySet().removeIf(e -> {
             synchronized (e.getValue()) {
                 prune(e.getValue(), now.minus(props.loginLockDuration()));
+                return e.getValue().isEmpty();
+            }
+        });
+        aiSessionsByUser.entrySet().removeIf(e -> {
+            synchronized (e.getValue()) {
+                prune(e.getValue(), now.minus(AI_SESSION_WINDOW));
                 return e.getValue().isEmpty();
             }
         });

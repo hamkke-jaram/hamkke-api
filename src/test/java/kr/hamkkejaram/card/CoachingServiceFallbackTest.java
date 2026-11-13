@@ -24,6 +24,7 @@ import static kr.hamkkejaram.card.CardSituation.GROWING;
 import static kr.hamkkejaram.card.CardSituation.STEADY;
 import static kr.hamkkejaram.card.MetricFocus.CALM;
 import static kr.hamkkejaram.card.MetricFocus.GENERAL;
+import static kr.hamkkejaram.card.MetricFocus.HARD_MOMENT;
 import static kr.hamkkejaram.card.MetricFocus.JOINT_PLAY;
 import static kr.hamkkejaram.card.TestCards.card;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -148,6 +149,62 @@ class CoachingServiceFallbackTest {
         Coaching c = service(ctx -> {
             throw new IllegalStateException("selector down");
         }).deliverFor(record(), trend(ChangeTrend.GROWING, JOINT_PLAY));
+        assertThat(c.delivery()).isNull();
+        assertThat(c.guidance()).isNull();
+        verify(deliveries, never()).save(any(CardDelivery.class));
+    }
+
+    // ---------- AI 관찰 기록(가정)의 카드 ----------
+
+    @Test
+    void observationDeliversCardForFocusAndLinksItToTheObservation() {
+        when(cards.findByActiveTrueOrderByIdAsc()).thenReturn(List.of(
+                card(5, STEADY, JOINT_PLAY), card(7, ANY, GENERAL), card(17, ANY, HARD_MOMENT),
+                card(18, ANY, HARD_MOMENT)));
+        Coaching c = service(ruleBased).deliverForObservation(1L, 77L, HARD_MOMENT);
+        assertThat(c.guidance()).isNull();
+        assertThat(c.delivery().card().id()).isEqualTo(17L);
+        assertThat(c.delivery().card().metricFocus()).isEqualTo(HARD_MOMENT);
+
+        org.mockito.ArgumentCaptor<CardDelivery> saved = org.mockito.ArgumentCaptor.forClass(CardDelivery.class);
+        verify(deliveries).save(saved.capture());
+        assertThat(saved.getValue().getAiObservationId()).isEqualTo(77L);
+        assertThat(saved.getValue().getRecordId()).isNull();
+        assertThat(saved.getValue().getChildId()).isEqualTo(1L);
+        assertThat(saved.getValue().getDeliveredAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void observationSkipsCardsDeliveredRecently() {
+        when(cards.findByActiveTrueOrderByIdAsc()).thenReturn(List.of(
+                card(17, ANY, HARD_MOMENT), card(18, ANY, HARD_MOMENT), card(19, ANY, HARD_MOMENT),
+                card(20, ANY, HARD_MOMENT)));
+        when(deliveries.lastDeliveredByCard(anyLong())).thenReturn(List.of(
+                new Object[]{17L, NOW.minusSeconds(300)}, new Object[]{18L, NOW.minusSeconds(200)},
+                new Object[]{19L, NOW.minusSeconds(100)}));
+        assertThat(service(ruleBased).deliverForObservation(1L, 78L, HARD_MOMENT).delivery().card().id())
+                .isEqualTo(20L);
+    }
+
+    @Test
+    void observationStillGetsACardWhenSelectorsFail() {
+        RuleBasedCardSelector brokenRules = new RuleBasedCardSelector() {
+            @Override
+            public Optional<Long> select(Context ctx) {
+                throw new IllegalStateException("rules down");
+            }
+        };
+        CoachingService s = new CoachingService(ctx -> {
+            throw new IllegalStateException("selector down");
+        }, brokenRules, cards, deliveries, support, clock);
+        // 고정 규칙: ANY·GENERAL 카드(7). 관찰 기록 저장은 카드 선택 때문에 실패하지 않는다.
+        assertThat(s.deliverForObservation(1L, 79L, HARD_MOMENT).delivery().card().id()).isEqualTo(7L);
+    }
+
+    @Test
+    void observationWithoutActiveCardsReturnsEmptyCoaching() {
+        when(cards.findByActiveTrueOrderByIdAsc()).thenReturn(List.of());
+        Coaching c = service(ruleBased).deliverForObservation(1L, 80L, GENERAL);
         assertThat(c.delivery()).isNull();
         assertThat(c.guidance()).isNull();
         verify(deliveries, never()).save(any(CardDelivery.class));

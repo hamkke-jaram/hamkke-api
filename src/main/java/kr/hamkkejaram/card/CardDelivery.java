@@ -29,6 +29,10 @@ public class CardDelivery {
     @Column(name = "record_id")
     private Long recordId;
 
+    /** AI 관찰 기록(가정)에서 전달된 카드면 그 기록의 id. 기록이 지워지면 이 전달 이력도 함께 지워진다(V5). */
+    @Column(name = "ai_observation_id")
+    private Long aiObservationId;
+
     @Column(name = "delivered_at", nullable = false)
     private Instant deliveredAt;
 
@@ -44,6 +48,13 @@ public class CardDelivery {
         this.deliveredAt = deliveredAt;
     }
 
+    public static CardDelivery forAiObservation(Long childId, CoachingCard card, Long aiObservationId,
+                                                Instant deliveredAt) {
+        CardDelivery d = new CardDelivery(childId, card, null, deliveredAt);
+        d.aiObservationId = aiObservationId;
+        return d;
+    }
+
     public void markTried(Instant now) {
         if (triedAt == null) triedAt = now;
     }
@@ -55,6 +66,8 @@ public class CardDelivery {
     public CoachingCard getCard() { return card; }
 
     public Long getRecordId() { return recordId; }
+
+    public Long getAiObservationId() { return aiObservationId; }
 
     public Instant getDeliveredAt() { return deliveredAt; }
 

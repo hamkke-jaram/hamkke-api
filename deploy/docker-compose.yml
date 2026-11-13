@@ -1,9 +1,11 @@
 # 함께자람 운영 구성 (AWS EC2 서울 리전 1대 기준)
-#   web : nginx (정적 파일 + /api 프록시 + TLS)
+#   web : nginx (정적 파일 + /api·/ai 프록시 + TLS)
 #   api : Spring Boot (prod 프로필)
 #   mysql : MySQL 8 (외부 포트 열지 않음)
-# 저장소 배치: hamkke-api 와 hamkke-web 을 같은 상위 폴더에 클론한다.
+#   ai  : AI 관찰 기록 서버(hamkke-ai server/). 'ai' 프로필을 켰을 때만 뜬다(docs/ai-observation.md 9장).
+# 저장소 배치: hamkke-api, hamkke-web, hamkke-ai 를 같은 상위 폴더에 클론한다(ai 를 쓰지 않으면 hamkke-ai 는 없어도 된다).
 # 사용: cp .env.example .env && (값 채우기) && docker compose up -d --build
+#   AI 관찰 기록까지 켜려면 .env 에 AI_ENABLED=true, AI_SHARED_SECRET, COMPOSE_PROFILES=ai 를 채운다.
 
 name: hamkke-jaram
 
@@ -42,8 +44,44 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (32+ chars)}
+      # AI 관찰 기록. 꺼져 있으면(기본) 비밀 없이 뜨고 AI 관련 요청만 503으로 답한다.
+      # 켜면 AI_SHARED_SECRET(32바이트 이상, JWT_SECRET과 다른 값)이 없을 때 api가 기동하지 않는다.
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_SHARED_SECRET: ${AI_SHARED_SECRET:-}
     expose:
       - "8080"
+
+  # AI 관찰 기록 서버. 장면 사진(최대 6장)을 메모리에서만 다루고 VL 모델(Ollama)에 물어본 뒤 버린다.
+  # - 'ai' 프로필에 넣어 두었다: .env 에 COMPOSE_PROFILES=ai 가 없으면 이 서비스는 뜨지 않는다
+  #   (그때는 web 의 /ai/ 만 502 가 되고 나머지는 그대로 동작한다).
+  # - 바깥으로 포트를 열지 않는다. web(nginx)의 /ai/ 프록시로만 닿는다.
+  # - 사진이 디스크에 닿지 않도록 루트 파일 시스템을 읽기 전용으로 둔다(/tmp 는 메모리).
+  # - VL 모델은 GPU가 있는 기기에서 돌려야 한다. OLLAMA_URL 로 그 기기의 Ollama 를 가리킨다.
+  ai:
+    profiles: ["ai"]
+    build:
+      context: ../../hamkke-ai
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "8090"
+      AI_SHARED_SECRET: ${AI_SHARED_SECRET:-}   # api 와 같은 값. 비어 있으면 ai 서버가 기동하지 않는다
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      VL_MODEL: ${VL_MODEL:-qwen3.5:4b}
+      VL_MAX_CONCURRENCY: ${VL_MAX_CONCURRENCY:-1}
+      VL_TIMEOUT_MS: ${VL_TIMEOUT_MS:-180000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 같은 기기에서 도는 Ollama 를 쓸 때(리눅스)
+    expose:
+      - "8090"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   web:
     build: ../../hamkke-web
@@ -53,6 +91,7 @@ services:
     environment:
       SERVER_NAME: ${SERVER_NAME:?SERVER_NAME is required}
       API_UPSTREAM: api:8080
+      AI_UPSTREAM: ai:8090   # ai 서비스가 없으면 /ai/ 만 502 (nginx 는 요청할 때 주소를 찾는다)
     ports:
       - "80:80"
       - "443:443"

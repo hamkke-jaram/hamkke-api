@@ -6,6 +6,7 @@ import kr.hamkkejaram.child.ChildRepository;
 import kr.hamkkejaram.common.ApiException;
 import kr.hamkkejaram.common.ErrorCode;
 import kr.hamkkejaram.common.TimeConfig;
+import kr.hamkkejaram.aiobs.AiConsentService;
 import kr.hamkkejaram.record.RecordDtos.WeekSummary;
 import kr.hamkkejaram.record.WeeklySummaryService;
 import kr.hamkkejaram.security.AuthUser;
@@ -50,11 +51,12 @@ public class ShareService {
     private final TeacherLinkRepository links;
     private final UserRepository users;
     private final WeeklySummaryService weekly;
+    private final AiConsentService aiConsent;
     private final Clock clock;
 
     public ShareService(ChildAccess access, ChildRepository children, ShareSettingRepository settings,
                         InviteCodeRepository codes, TeacherLinkRepository links, UserRepository users,
-                        WeeklySummaryService weekly, Clock clock) {
+                        WeeklySummaryService weekly, AiConsentService aiConsent, Clock clock) {
         this.access = access;
         this.children = children;
         this.settings = settings;
@@ -62,6 +64,7 @@ public class ShareService {
         this.links = links;
         this.users = users;
         this.weekly = weekly;
+        this.aiConsent = aiConsent;
         this.clock = clock;
     }
 
@@ -77,7 +80,9 @@ public class ShareService {
     public ShareSettingsResponse updateSettings(AuthUser user, long childId, ShareSettingsRequest req) {
         access.requireOwner(user, childId);
         ShareSetting s = settingOf(childId);
-        s.update(req.jointPlay(), req.responseLatency(), req.distress(), req.coachingCards(), clock.instant());
+        Instant now = clock.instant();
+        s.update(req.jointPlay(), req.responseLatency(), req.distress(), req.coachingCards(), now);
+        s.updateAi(req.aiObservations(), req.institutionCapture(), now);
         return ShareSettingsResponse.from(s);
     }
 
@@ -160,6 +165,8 @@ public class ShareService {
         if (s.isResponseLatency()) items.add(SharedItem.RESPONSE_LATENCY);
         if (s.isDistress()) items.add(SharedItem.DISTRESS);
         if (s.isCoachingCards()) items.add(SharedItem.COACHING_CARDS);
+        if (s.isAiObservations()) items.add(SharedItem.AI_OBSERVATIONS);
+        if (s.isInstitutionCapture() && aiConsent.hasActiveConsent(childId)) items.add(SharedItem.INSTITUTION_CAPTURE);
 
         boolean anyMetric = s.isJointPlay() || s.isResponseLatency() || s.isDistress();
         List<SharedWeek> shared = !anyMetric ? List.of() : weekly.summarize(childId, weeks).stream()
