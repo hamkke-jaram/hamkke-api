@@ -97,8 +97,12 @@ api는 영수증의 서명·`aud`·만료, `cid`가 경로의 아이와 같은�
 오류: `{ "code": "...", "message": "한국어 문장" }` — 400 `INVALID_FRAMES`, 401 `INVALID_TOKEN`, 409 `SESSION_ALREADY_USED`, 413 `PAYLOAD_TOO_LARGE`, 429 `BUSY`, 502 `MODEL_UNAVAILABLE`, 504 `MODEL_TIMEOUT`.
 
 `GET /ai/v1/health` → `{ "status": "ok", "model": "...", "modelReady": true|false }` (인증 없음, 사진·문장 없음)
+- 기본은 언제나 200(서버가 살아 있는지). `?strict=1`이면 모델을 쓸 수 없을 때 503 `{ "status": "unavailable", ... }`(가동 감시·촬영 전 확인용).
+- 대신 쓰는 모델(`VL_FALLBACK_MODEL`)을 정했으면 `fallbackModel`이 붙고, `modelReady`는 둘 가운데 하나라도 쓸 수 있으면 `true`.
 
-모델 제공자는 갈아 끼울 수 있게 인터페이스로 둔다. v1 구현은 Ollama(`OLLAMA_URL`, `VL_MODEL`)다.
+`GET /ai/v1/metrics` → Prometheus 글 형식의 운영 지표(요청 수·결과 코드·처리 시간·대기열·모델 준비 상태). 사진·문장·토큰·jti·식별 값은 없다. nginx가 밖에서 막고(404), `METRICS_TOKEN`을 정하면 Bearer 토큰이 있어야 한다. 지표 목록은 hamkke-ai `docs/observation.md` 3장.
+
+모델 제공자는 갈아 끼울 수 있게 인터페이스로 둔다. v1 구현은 Ollama(`OLLAMA_URL`, `VL_MODEL`)다. 첫 모델을 쓸 수 없을 때(연결 실패·모델 없음 등)만 대신 쓰는 모델로 넘어갈 수 있고, 그때 응답 `modelVersion`과 영수증 `mv`에는 **실제로 기록을 쓴 모델 이름**이 들어간다(api는 그 값을 그대로 저장한다).
 
 ## 6. 관찰 기록 객체 (`obs`)
 
@@ -196,12 +200,14 @@ api는 영수증의 서명·`aud`·만료, `cid`가 경로의 아이와 같은�
 ## 9. 배포
 
 - `deploy/docker-compose.yml`에 `ai` 서비스 추가(hamkke-ai `server/`), nginx `/ai/` 프록시(본문 2MB, 읽기 제한 시간 200초).
-- 환경 변수: `AI_SHARED_SECRET`(api·ai 공통), `AI_ENABLED`, `OLLAMA_URL`, `VL_MODEL`, `VL_MAX_CONCURRENCY`, `VL_TIMEOUT_MS`.
+- 환경 변수: `AI_SHARED_SECRET`(api·ai 공통), `AI_ENABLED`, `OLLAMA_URL`, `VL_MODEL`, `VL_MAX_CONCURRENCY`, `VL_TIMEOUT_MS`. 그 밖의 ai 서버 변수(`VL_MAX_WAITING`, `VL_MAX_WAIT_MS`, `VL_KEEP_ALIVE`, `VL_NUM_CTX`, `VL_MAX_OUTPUT_TOKENS`, `VL_WARMUP`, `VL_FALLBACK_MODEL`, `VL_FALLBACK_URL`, `OLLAMA_AUTH_TOKEN`, `OLLAMA_AUTH_HEADER`, `OLLAMA_ALLOW_INSECURE`, `METRICS_TOKEN`)는 비워 두면 기본값을 쓰고, compose가 모두 넘긴다. 표는 [deploy.md 2.1절](deploy.md#21-ai-관찰-기록-켜기-선택)과 hamkke-ai `docs/observation.md` 2장.
+- AI 서버와 모델 서버 사이에도 장면 사진이 지나간다. 모델 서버가 바깥 주소면 https(TLS 프록시 + `OLLAMA_AUTH_TOKEN`)로 잇는다. 바깥 주소를 평문 http로 가리키면 ai 서버가 기동하지 않는다(`OLLAMA_ALLOW_INSECURE=true`로만 풀린다).
+- 컨테이너 `HEALTHCHECK`는 살아 있는지만 본다. 모델 준비 여부는 `/ai/v1/health?strict=1`이나 지표로 따로 감시한다. 모델은 뜰 때 미리 올리고(`VL_WARMUP`), `VL_KEEP_ALIVE=30m`으로 오래 둔다.
 - VL 모델은 GPU가 있는 기기에서 돌려야 한다. GPU 없는 EC2에서는 매우 느리므로, 모델 서버를 따로 두거나 다른 제공자 구현을 추가한다(인터페이스는 준비됨).
 
 ## 10. 아직 확인이 필요한 것 (코드로 해결되지 않음)
 
 - 아동 얼굴이 담긴 사진을 서버로 보내 분석하는 것의 법률 검토(개인정보보호법상 민감정보·아동 정보, 처리 위탁 고지).
 - 기관에서 다른 아이·교직원이 함께 찍히는 경우의 동의. v1은 안내 문구로만 막는다.
-- VL이 쓴 문장의 품질: 틀린 기록이 나올 수 있다. 연출 영상으로 사람이 본 것과 비교해 봐야 한다.
+- VL이 쓴 문장의 품질: 틀린 기록이 나올 수 있다. 연출 영상으로 사람이 본 것과 비교해 봐야 한다. 비교 도구는 준비됨(hamkke-ai `server/eval/`, `npm run eval:vl`: 사람 라벨과 태그 일치·놓침·더함 수, 문장 검사에 걸린 글 수). 연출 영상과 라벨을 만들어 실제로 돌려 보는 일이 남았다. 결과는 내부 개선용이고 퍼센트 수치로 알리지 않는다.
 - 실시간 감지·알림은 만들지 않는다(가려내기처럼 보일 수 있음).

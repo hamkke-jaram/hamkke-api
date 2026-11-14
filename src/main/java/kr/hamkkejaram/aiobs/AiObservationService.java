@@ -131,6 +131,12 @@ public class AiObservationService {
     /** 보호자는 전부. 선생님은 기관 기록은 항상, 가정 기록은 보호자가 공유를 켠 경우만. */
     @Transactional(readOnly = true)
     public List<ObservationResponse> list(AuthUser user, long childId, int limit) {
+        return list(user, childId, limit, null);
+    }
+
+    /** beforeId가 있으면 그 기록보다 오래된 것만(같은 최신순). 기준 기록도 그 사람이 볼 수 있는 기록이어야 한다. */
+    @Transactional(readOnly = true)
+    public List<ObservationResponse> list(AuthUser user, long childId, int limit, Long beforeId) {
         access.requireOwnerOrLinkedTeacher(user, childId);
         Set<ObservationSource> sources = EnumSet.allOf(ObservationSource.class);
         if (user.isTeacher()) {
@@ -138,7 +144,17 @@ public class AiObservationService {
             if (!homeShared) sources = EnumSet.of(ObservationSource.INSTITUTION);
         }
         int n = Math.max(1, Math.min(MAX_LIST, limit));
-        List<AiObservation> found = observations.findRecent(childId, sources, PageRequest.of(0, n));
+        List<AiObservation> found;
+        if (beforeId == null) {
+            found = observations.findRecent(childId, sources, PageRequest.of(0, n));
+        } else {
+            Set<ObservationSource> visible = sources;
+            AiObservation anchor = observations.findByIdAndChildId(beforeId, childId)
+                    .filter(o -> visible.contains(o.getSource()))
+                    .orElseThrow(ApiException::unknownCursor);
+            found = observations.findOlderThan(childId, sources, anchor.getRecordedAt(), anchor.getId(),
+                    PageRequest.of(0, n));
+        }
 
         Map<Long, String> names = users.findAllById(found.stream()
                         .filter(o -> o.getSource() == ObservationSource.INSTITUTION)

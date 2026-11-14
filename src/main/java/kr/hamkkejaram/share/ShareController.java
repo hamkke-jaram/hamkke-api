@@ -6,6 +6,7 @@ import kr.hamkkejaram.share.ShareDtos.InviteCodeResponse;
 import kr.hamkkejaram.share.ShareDtos.LinkedTeacherResponse;
 import kr.hamkkejaram.share.ShareDtos.ShareSettingsRequest;
 import kr.hamkkejaram.share.ShareDtos.ShareSettingsResponse;
+import kr.hamkkejaram.share.ShareDtos.UsableInviteCodeResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -44,6 +45,20 @@ public class ShareController {
     @ResponseStatus(HttpStatus.CREATED)
     public InviteCodeResponse issue(@AuthenticationPrincipal AuthUser user, @PathVariable long childId) {
         return service.issueInviteCode(user, childId);
+    }
+
+    /** 아직 쓸 수 있는 코드만, 최신 발급순. */
+    @GetMapping("/invite-codes")
+    public List<UsableInviteCodeResponse> inviteCodes(@AuthenticationPrincipal AuthUser user,
+                                                      @PathVariable long childId) {
+        return service.usableInviteCodes(user, childId);
+    }
+
+    @DeleteMapping("/invite-codes/{code}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revokeInviteCode(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
+                                 @PathVariable String code) {
+        service.revokeInviteCode(user, childId, code);
     }
 
     @GetMapping("/teachers")

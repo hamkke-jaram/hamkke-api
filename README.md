@@ -9,7 +9,7 @@
 이 저장소가 팀 공통 문서를 가진다.
 
 - [개발 명세서](docs/SPEC.md) — 범위, 원칙→구현 규칙, 데이터 모델, 카드 선택 규칙·장애 시 대체 규칙, 보안, 에러 코드
-- [기능 요구사항(ID)](docs/requirements.md) — ACC·CHD·REC·CRD·SHR·TCH·SUP 요구사항 ID
+- [기능 요구사항(ID)](docs/requirements.md) — ACC·CHD·REC·CRD·SHR·TCH·LST·SUP·AIO·OPS 요구사항 ID
 - [API 명세](docs/api.md)
 - [AI 관찰 기록 명세](docs/ai-observation.md) — 세 저장소가 지키는 약속: 동의, 분석 토큰·영수증, 관찰 기록 객체, AI 서버 API
 - [배포 가이드](docs/deploy.md)
@@ -25,7 +25,7 @@
 
 ```bash
 ./gradlew bootRun     # local 프로필: H2 파일 DB, 도커 불필요 → http://localhost:8080/swagger-ui.html
-./gradlew test        # 단위(추이·카드 선택·대체 규칙·초대 코드 만료·영수증 검증·문장 검사) + 통합(전체 흐름·권한·동의·업로드 거부·AI 관찰 기록)
+./gradlew test        # 단위(추이·카드 선택·대체 규칙·초대 코드 만료·정리·영수증 검증·문장 검사·로그인 잠금·동시 재전송) + 통합(전체 흐름·권한·동의·업로드 거부·AI 관찰 기록·계정 기능·공유 흐름·목록 커서)
 node scripts/check-expressions.mjs   # 표현 규칙 검수(src/main·src/test·scripts)
 ```
 
@@ -48,10 +48,13 @@ local 프로필에서는 켜져 있다(`app.ai.enabled=true`, 개발용 공유 �
 - VL 모델이 쓴 문장은 저장 전에 한 번 더 거른다(금지 표현, 평가·조언처럼 읽히는 말). 조언은 사람이 쓴 카드에서만 고른다.
 - 아동 정보는 법정대리인 동의 없이 저장하지 않는다(422).
 - 가정 기록은 기본 비공개. 교사는 부모가 켠 항목만 주 단위로 본다.
+- 연결: 부모는 아직 쓸 수 있는 초대 코드를 다시 보고 취소할 수 있다(`GET`·`DELETE /children/{id}/invite-codes`). 만료·사용된 지 7일이 지난 코드는 매일 새벽(04:27) 작업이 지운다. 선생님은 스스로 연결을 끊을 수 있고(`DELETE /teacher/links/{childId}`), 이미 쓴 목표·메모는 남는다.
+- 목록(기록·카드 이력·관찰 메모·AI 관찰 기록)은 `limit`·`beforeId`로 이어 본다(응답 모양은 배열 그대로).
 - 상담·기관 안내는 로그인 없이 제공한다.
+- 계정: 표시명·비밀번호를 바꿀 수 있고(비밀번호를 바꾸면 다른 기기의 리프레시 토큰은 모두 폐기), 바뀐 약관·개인정보 처리방침에는 다시 동의받으며(`pendingConsents`), 본인 데이터를 JSON 파일로 내려받을 수 있다(`GET /me/export`). 탈퇴·아이 삭제로 주인이 없어진 동의 기록은 철회 후 3년(`app.policy.consent-retention`) 뒤 매일 새벽 작업이 지운다.
 - 코칭 카드는 사람이 쓴 카드만 전달하고 출처가 필수다. 카드 선택이 실패해도 대체 규칙으로 카드를 전달하고 기록 저장은 막지 않는다.
 - DB 스키마는 Flyway가 관리한다. 새 변경은 `src/main/resources/db/migration/V{n}__*.sql`로 추가하고 적용된 파일은 고치지 않는다.
 
 ## 배포
 
-`deploy/docker-compose.yml` — nginx(hamkke-web) + api + mysql, 그리고 켰을 때만 뜨는 ai(hamkke-ai `server/`). hamkke-api·hamkke-web(·hamkke-ai)을 같은 상위 폴더에 클론한 뒤 [배포 가이드](docs/deploy.md)를 따른다. AI 관찰 기록은 기본값이 꺼짐이며 켜는 방법은 배포 가이드 2.1절에 있다.
+`deploy/docker-compose.yml` — nginx(hamkke-web) + api + mysql, 그리고 켰을 때만 뜨는 ai(hamkke-ai `server/`). hamkke-api·hamkke-web(·hamkke-ai)을 같은 상위 폴더에 클론한 뒤 [배포 가이드](docs/deploy.md)를 따른다. AI 관찰 기록은 기본값이 꺼짐이며 켜는 방법은 배포 가이드 2.1절에 있다. 인증서 자동 갱신(`deploy/renew-cert.sh`), 매일 백업·복원 연습(`deploy/backup.sh`, `deploy/restore.sh --drill`), 로그 회전, AI 서버 지표는 배포 가이드 3.1절·5장·8장에 있다.

@@ -87,6 +87,11 @@ public class AiReceiptVerifier {
         Instant latest = now.plus(CLOCK_SKEW);
         if (iat.toInstant().isAfter(latest)) throw new InvalidReceiptException("iat_in_future");
         if (exp.toInstant().isAfter(latest.plus(MAX_LIFETIME))) throw new InvalidReceiptException("lifetime_too_long");
+        // 발급~만료 간격도 계약(15분 이하) 안이어야 한다. 오래전 iat에 가까운 exp를 붙인 영수증을 막는다.
+        if (!exp.after(iat)) throw new InvalidReceiptException("exp_not_after_iat");
+        if (Duration.between(iat.toInstant(), exp.toInstant()).compareTo(MAX_LIFETIME) > 0) {
+            throw new InvalidReceiptException("lifetime_too_long");
+        }
 
         // sub는 문자열로 온다(계약). 숫자로 와도 같은 값이면 받는다.
         long userId = positiveLong(c.get(Claims.SUBJECT), "sub");

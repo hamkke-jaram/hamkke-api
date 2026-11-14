@@ -19,8 +19,12 @@ import kr.hamkkejaram.share.ShareDtos.SharedItem;
 import kr.hamkkejaram.share.ShareDtos.SharedSummaryResponse;
 import kr.hamkkejaram.share.ShareDtos.SharedWeek;
 import kr.hamkkejaram.share.ShareDtos.TeacherChildResponse;
+import kr.hamkkejaram.share.ShareDtos.UsableInviteCodeResponse;
 import kr.hamkkejaram.user.User;
 import kr.hamkkejaram.user.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +46,9 @@ public class ShareService {
     static final int CODE_LENGTH = 8;
     static final Duration CODE_TTL = Duration.ofHours(72);
     static final int MAX_USABLE_CODES = 3;
+    /** 만료되었거나 사용된 코드를 이만큼 지난 뒤 지운다(누가 썼는지도 함께 사라진다). */
+    static final Duration STALE_CODE_RETENTION = Duration.ofDays(7);
+    private static final Logger log = LoggerFactory.getLogger(ShareService.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ChildAccess access;
@@ -101,6 +108,27 @@ public class ShareService {
         return new InviteCodeResponse(saved.getCode(), saved.getExpiresAt());
     }
 
+    /** 아직 쓸 수 있는(쓰지 않았고 만료 전) 코드만, 최신 발급순. */
+    @Transactional(readOnly = true)
+    public List<UsableInviteCodeResponse> usableInviteCodes(AuthUser user, long childId) {
+        access.requireOwner(user, childId);
+        return codes.findUsable(childId, clock.instant()).stream()
+                .map(c -> new UsableInviteCodeResponse(c.getCode(), c.getExpiresAt(), c.getCreatedAt()))
+                .toList();
+    }
+
+    /** 아직 쓸 수 있는 코드를 취소한다(행을 지운다). 이후 그 코드로 연결하면 INVITE_CODE_INVALID. */
+    @Transactional
+    public void revokeInviteCode(AuthUser user, long childId, String rawCode) {
+        access.requireOwner(user, childId);
+        Instant now = clock.instant();
+        // 연결(link)과 같은 행 잠금을 써서, 선생님이 막 쓰는 중인 코드와 엇갈리지 않게 한다.
+        InviteCode invite = codes.findByCodeForUpdate(normalize(rawCode))
+                .filter(c -> c.getChildId().equals(childId) && c.isUsable(now))
+                .orElseThrow(ApiException::notFound);
+        codes.delete(invite);
+    }
+
     @Transactional(readOnly = true)
     public List<LinkedTeacherResponse> linkedTeachers(AuthUser user, long childId) {
         access.requireOwner(user, childId);
@@ -125,7 +153,7 @@ public class ShareService {
     @Transactional(noRollbackFor = ApiException.class)
     public TeacherChildResponse link(AuthUser user, String rawCode) {
         user.requireTeacher();
-        String code = rawCode.replaceAll("[\\s-]", "").toUpperCase(Locale.ROOT);
+        String code = normalize(rawCode);
         Instant now = clock.instant();
         InviteCode invite = codes.findByCodeForUpdate(code)
                 .filter(c -> c.isUsable(now))
@@ -138,6 +166,13 @@ public class ShareService {
         Child child = children.findById(invite.getChildId()).orElseThrow(ApiException::notFound);
         return new TeacherChildResponse(child.getId(), child.getNickname(), child.ageMonths(today()),
                 link.getLinkedAt());
+    }
+
+    /** 선생님이 스스로 연결을 끊는다. 이미 쓴 목표·관찰 메모는 남는다(TCH-07). */
+    @Transactional
+    public void unlinkSelf(AuthUser user, long childId) {
+        user.requireTeacher();
+        if (links.deleteLink(user.id(), childId) == 0) throw ApiException.notFound();
     }
 
     @Transactional(readOnly = true)
@@ -181,6 +216,23 @@ public class ShareService {
                 s.isJointPlay() ? w.jointPlaySeconds() : null,
                 s.isResponseLatency() ? w.responseLatencySec() : null,
                 s.isDistress() ? w.distressPerTenMinutes() : null);
+    }
+
+    // ---------- 정리 ----------
+
+    /** 만료된 지 7일 넘은 코드와 사용된 지 7일 넘은 코드를 지운다. 매일 04:27(서버 시간대). */
+    @Scheduled(cron = "0 27 4 * * *")
+    @Transactional
+    public int purgeStaleInviteCodes() {
+        int deleted = codes.deleteStaleBefore(clock.instant().minus(STALE_CODE_RETENTION));
+        if (deleted > 0) {
+            log.info("Purged {} stale invite codes", deleted);
+        }
+        return deleted;
+    }
+
+    private static String normalize(String rawCode) {
+        return rawCode.replaceAll("[\\s-]", "").toUpperCase(Locale.ROOT);
     }
 
     private ShareSetting settingOf(long childId) {

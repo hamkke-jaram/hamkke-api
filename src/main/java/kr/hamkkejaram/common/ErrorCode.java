@@ -24,7 +24,7 @@ public enum ErrorCode {
     AI_CONSENT_VERSION_MISMATCH(HttpStatus.UNPROCESSABLE_ENTITY, "동의 내용이 바뀌었어요. 새로고침한 뒤 다시 확인해 주세요."),
     INVITE_CODE_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "초대 코드를 확인해 주세요. 코드는 72시간 동안 한 번만 쓸 수 있어요."),
     CHILD_LIMIT_REACHED(HttpStatus.UNPROCESSABLE_ENTITY, "아이는 5명까지 등록할 수 있어요."),
-    INVITE_LIMIT_REACHED(HttpStatus.UNPROCESSABLE_ENTITY, "사용하지 않은 초대 코드가 너무 많아요. 잠시 후 다시 발급해 주세요."),
+    INVITE_LIMIT_REACHED(HttpStatus.UNPROCESSABLE_ENTITY, "아직 쓰지 않은 초대 코드가 3개 있어요. 필요 없는 코드를 취소한 뒤 다시 발급해 주세요."),
     TOO_MANY_ATTEMPTS(HttpStatus.TOO_MANY_REQUESTS, "시도가 너무 많아요. 잠시 후 다시 해 주세요."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청이에요."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "잠시 문제가 생겼어요. 다시 시도해 주세요."),

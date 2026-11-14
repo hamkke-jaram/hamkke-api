@@ -33,13 +33,14 @@ public class CardController {
     @GetMapping
     @Transactional(readOnly = true)
     public List<DeliveryResponse> list(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
-                                       @RequestParam(defaultValue = "20") int limit) {
+                                       @RequestParam(defaultValue = "20") int limit,
+                                       @RequestParam(required = false) Long beforeId) {
         access.requireOwnerOrLinkedTeacher(user, childId);
         if (user.isTeacher()) {
             boolean shared = shareSettings.findById(childId).map(s -> s.isCoachingCards()).orElse(false);
             if (!shared) throw ApiException.notFound();
         }
-        return coaching.recent(childId, Math.max(1, Math.min(50, limit)));
+        return coaching.recent(childId, Math.max(1, Math.min(50, limit)), beforeId);
     }
 
     @PostMapping("/{deliveryId}/tried")

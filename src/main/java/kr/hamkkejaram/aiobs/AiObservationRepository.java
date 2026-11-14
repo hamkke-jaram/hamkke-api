@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +22,14 @@ public interface AiObservationRepository extends JpaRepository<AiObservation, Lo
             + "order by o.recordedAt desc, o.id desc")
     List<AiObservation> findRecent(@Param("childId") Long childId,
                                    @Param("sources") Collection<ObservationSource> sources, Pageable pageable);
+
+    /** 목록 커서: (recordedAt, id)가 기준 기록보다 앞선(더 오래된) 기록, 같은 최신순. */
+    @Query("select o from AiObservation o where o.childId = :childId and o.source in :sources "
+            + "and (o.recordedAt < :at or (o.recordedAt = :at and o.id < :id)) "
+            + "order by o.recordedAt desc, o.id desc")
+    List<AiObservation> findOlderThan(@Param("childId") Long childId,
+                                      @Param("sources") Collection<ObservationSource> sources,
+                                      @Param("at") Instant at, @Param("id") Long id, Pageable pageable);
 
     /** 그 아이의 AI 관찰 기록 전부 삭제(동의 철회). 연결된 카드 전달 이력은 DB의 ON DELETE CASCADE로 함께 지워진다. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)

@@ -16,6 +16,16 @@ public interface InteractionRecordRepository extends JpaRepository<InteractionRe
 
     List<InteractionRecord> findByChildIdOrderByRecordedAtDescIdDesc(Long childId, Pageable pageable);
 
+    /** 목록 커서: (recordedAt, id)가 기준 항목보다 앞선(더 오래된) 기록, 같은 최신순. */
+    @Query("""
+            select r from InteractionRecord r
+            where r.childId = :childId
+              and (r.recordedAt < :at or (r.recordedAt = :at and r.id < :id))
+            order by r.recordedAt desc, r.id desc
+            """)
+    List<InteractionRecord> findOlderThan(@Param("childId") Long childId, @Param("at") Instant at,
+                                          @Param("id") Long id, Pageable pageable);
+
     /** 기준값 계산용: 같은 지표 버전, 이번 기록보다 앞선 기록(최신순). */
     @Query("""
             select r from InteractionRecord r

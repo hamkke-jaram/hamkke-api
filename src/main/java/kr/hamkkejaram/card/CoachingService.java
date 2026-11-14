@@ -106,7 +106,22 @@ public class CoachingService {
 
     @Transactional(readOnly = true)
     public List<DeliveryResponse> recent(long childId, int limit) {
-        return deliveries.findRecent(childId, PageRequest.of(0, limit)).stream().map(DeliveryResponse::from).toList();
+        return recent(childId, limit, null);
+    }
+
+    /** beforeId가 있으면 그 전달 이력보다 오래된 것만(같은 최신순). */
+    @Transactional(readOnly = true)
+    public List<DeliveryResponse> recent(long childId, int limit, Long beforeId) {
+        PageRequest page = PageRequest.of(0, limit);
+        List<CardDelivery> found;
+        if (beforeId == null) {
+            found = deliveries.findRecent(childId, page);
+        } else {
+            CardDelivery anchor = deliveries.findByIdAndChildId(beforeId, childId)
+                    .orElseThrow(ApiException::unknownCursor);
+            found = deliveries.findOlderThan(childId, anchor.getDeliveredAt(), anchor.getId(), page);
+        }
+        return found.stream().map(DeliveryResponse::from).toList();
     }
 
     @Transactional

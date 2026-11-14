@@ -45,8 +45,9 @@ public class RecordController {
 
     @GetMapping("/interaction-records")
     public List<RecordResponse> list(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
-                                     @RequestParam(defaultValue = "20") int limit) {
-        return service.list(user, childId, limit);
+                                     @RequestParam(defaultValue = "20") int limit,
+                                     @RequestParam(required = false) Long beforeId) {
+        return service.list(user, childId, limit, beforeId);
     }
 
     @DeleteMapping("/interaction-records/{recordId}")

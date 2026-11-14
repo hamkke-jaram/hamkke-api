@@ -56,5 +56,7 @@ public class InviteCode {
 
     public String getCode() { return code; }
 
+    public Instant getCreatedAt() { return createdAt; }
+
     public Instant getExpiresAt() { return expiresAt; }
 }

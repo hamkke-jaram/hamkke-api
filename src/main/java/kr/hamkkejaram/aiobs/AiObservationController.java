@@ -71,8 +71,9 @@ public class AiObservationController {
 
     @GetMapping("/ai-observations")
     public List<ObservationResponse> list(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
-                                          @RequestParam(defaultValue = "20") int limit) {
-        return service.list(user, childId, limit);
+                                          @RequestParam(defaultValue = "20") int limit,
+                                          @RequestParam(required = false) Long beforeId) {
+        return service.list(user, childId, limit, beforeId);
     }
 
     @DeleteMapping("/ai-observations/{observationId}")

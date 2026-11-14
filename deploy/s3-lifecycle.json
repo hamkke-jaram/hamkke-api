@@ -1,0 +1,12 @@
+{
+  "Rules": [
+    {
+      "ID": "hamkke-mysql-backup-30d",
+      "Filter": { "Prefix": "mysql/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 30 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}

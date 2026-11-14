@@ -77,10 +77,17 @@ public class NoteService {
     // ---------- 관찰 메모 ----------
 
     @Transactional(readOnly = true)
-    public List<ObservationResponse> listNotes(AuthUser user, long childId, int limit) {
+    public List<ObservationResponse> listNotes(AuthUser user, long childId, int limit, Long beforeId) {
         access.requireOwnerOrLinkedTeacher(user, childId);
-        int n = Math.max(1, Math.min(100, limit));
-        List<ObservationNote> list = notes.findByChildIdOrderByObservedOnDescIdDesc(childId, PageRequest.of(0, n));
+        PageRequest page = PageRequest.of(0, Math.max(1, Math.min(100, limit)));
+        List<ObservationNote> list;
+        if (beforeId == null) {
+            list = notes.findByChildIdOrderByObservedOnDescIdDesc(childId, page);
+        } else {
+            ObservationNote anchor = notes.findByIdAndChildId(beforeId, childId)
+                    .orElseThrow(ApiException::unknownCursor);
+            list = notes.findOlderThan(childId, anchor.getObservedOn(), anchor.getId(), page);
+        }
         Map<Long, String> names = names(list.stream().map(ObservationNote::getTeacherId).toList());
         return list.stream()
                 .map(o -> ObservationResponse.from(o, names.getOrDefault(o.getTeacherId(), "선생님"))).toList();

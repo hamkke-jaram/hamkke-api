@@ -24,3 +24,40 @@ jobs:
         run: chmod +x gradlew && ./gradlew test --no-daemon
       - name: 빌드
         run: ./gradlew bootJar --no-daemon
+
+  deploy-checks:
+    # 배포 파일(Dockerfile, deploy/)이 깨지지 않았는지 본다. 실제 서버에는 아무것도 하지 않는다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: api 이미지 빌드
+        run: docker build -t hamkke-api:ci .
+      - name: compose 구성 검사 (ai 프로필 포함)
+        working-directory: deploy
+        run: |
+          # compose 는 이웃 저장소(hamkke-web, hamkke-ai)를 빌드 문맥으로 가리킨다. 구성 검사만 하므로 빈 폴더로 둔다.
+          mkdir -p ../../hamkke-web ../../hamkke-ai
+          cp .env.example .env
+          sed -i 's/^JWT_SECRET=.*/JWT_SECRET=ci-only-jwt-secret-0123456789abcdefghijklmnop/' .env
+          docker compose config -q
+          docker compose --profile ai config -q
+          docker compose --profile ai config --services | sort | tr '\n' ' ' | grep -qx 'ai api mysql web '
+          # 모든 서비스에 로그 회전(json-file, 10m × 5)이 걸려 있는지
+          docker compose --profile ai config --format json |
+            jq -e '[.services[] | .logging.driver == "json-file" and .logging.options["max-size"] == "10m" and .logging.options["max-file"] == "5"] | all'
+          # ai 서비스는 읽기 전용·권한 없음·포트 비공개를 지킨다
+          docker compose --profile ai config --format json |
+            jq -e '.services.ai | .read_only == true and (.cap_drop | index("ALL")) != null and (.ports // [] | length) == 0'
+          # ai 서버가 읽는 환경 변수를 모두 넘기는지(hamkke-ai server/test/config-env.test.ts 와 같은 목록)
+          for name in AI_SHARED_SECRET OLLAMA_URL VL_MODEL VL_MAX_CONCURRENCY VL_MAX_WAITING VL_TIMEOUT_MS VL_MAX_WAIT_MS \
+                      VL_KEEP_ALIVE VL_NUM_CTX VL_MAX_OUTPUT_TOKENS VL_WARMUP VL_FALLBACK_MODEL VL_FALLBACK_URL \
+                      OLLAMA_AUTH_TOKEN OLLAMA_AUTH_HEADER OLLAMA_ALLOW_INSECURE METRICS_TOKEN NODE_ENV PORT; do
+            docker compose --profile ai config --format json | jq -e --arg n "$name" '.services.ai.environment | has($n)' > /dev/null \
+              || { echo "ai.environment 에 $name 이 없어요"; exit 1; }
+          done
+          rm .env
+      - name: 운영 스크립트 검사 (백업·복원·인증서 갱신)
+        run: |
+          for f in deploy/backup.sh deploy/restore.sh deploy/renew-cert.sh; do bash -n "$f"; done
+          shellcheck -S warning deploy/backup.sh deploy/restore.sh deploy/renew-cert.sh
+          jq -e '.Rules[0].Expiration.Days == 30' deploy/s3-lifecycle.json

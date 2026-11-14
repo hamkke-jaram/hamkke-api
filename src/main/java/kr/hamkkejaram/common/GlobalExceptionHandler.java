@@ -31,7 +31,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException e) {
         List<ErrorResponse.FieldError> fields = e.getBindingResult().getFieldErrors().stream()
-                .map(f -> new ErrorResponse.FieldError(f.getField(), f.getDefaultMessage()))
+                .map(f -> new ErrorResponse.FieldError(f.getField(), FieldErrorMessages.of(f)))
                 .toList();
         ErrorCode code = ErrorCode.VALIDATION_FAILED;
         return ResponseEntity.status(code.status())

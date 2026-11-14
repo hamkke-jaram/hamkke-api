@@ -58,8 +58,9 @@ public class NoteController {
 
     @GetMapping("/observations")
     public List<ObservationResponse> observations(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
-                                                  @RequestParam(defaultValue = "50") int limit) {
-        return service.listNotes(user, childId, limit);
+                                                  @RequestParam(defaultValue = "50") int limit,
+                                                  @RequestParam(required = false) Long beforeId) {
+        return service.listNotes(user, childId, limit, beforeId);
     }
 
     @PostMapping("/observations")

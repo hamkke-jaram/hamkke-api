@@ -44,6 +44,16 @@ public class User {
         this.createdAt = createdAt;
     }
 
+    /** 표시명 수정. 호출하는 쪽이 앞뒤 공백을 지우고 길이(1~30자)를 확인한다. */
+    public void changeDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    /** 비밀번호 변경. BCrypt 해시만 받는다. */
+    public void changePasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
     public Long getId() { return id; }
 
     public String getEmail() { return email; }

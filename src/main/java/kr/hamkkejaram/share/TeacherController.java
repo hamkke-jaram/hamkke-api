@@ -9,6 +9,7 @@ import kr.hamkkejaram.share.ShareDtos.SharedSummaryResponse;
 import kr.hamkkejaram.share.ShareDtos.TeacherChildResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +38,13 @@ public class TeacherController {
                                      HttpServletRequest http) {
         rateLimiter.checkAuthRequest(http.getRemoteAddr()); // 코드 대입 시도 제한
         return service.link(user, req.code());
+    }
+
+    /** 선생님이 스스로 연결을 끊는다. 이미 쓴 목표·관찰 메모는 남는다(TCH-07). */
+    @DeleteMapping("/links/{childId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unlink(@AuthenticationPrincipal AuthUser user, @PathVariable long childId) {
+        service.unlinkSelf(user, childId);
     }
 
     @GetMapping("/children")

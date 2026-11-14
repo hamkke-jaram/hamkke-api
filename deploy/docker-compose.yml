@@ -9,10 +9,19 @@
 
 name: hamkke-jaram
 
+# 모든 서비스의 컨테이너 로그는 json-file 로 10MB × 5개까지만 둔다(서비스마다 최대 50MB, 디스크 30GB 기준).
+# 오래된 로그는 자동으로 지워진다. 로그에는 사진·관찰 문장·토큰이 남지 않는다(docs/deploy.md 8장).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   mysql:
     image: mysql:8.4
     restart: unless-stopped
+    logging: *default-logging
     environment:
       MYSQL_DATABASE: ${DB_NAME:-hamkke}
       MYSQL_USER: ${DB_USER:?DB_USER is required}
@@ -34,6 +43,7 @@ services:
   api:
     build: ..
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       mysql:
         condition: service_healthy
@@ -57,12 +67,15 @@ services:
   # - 바깥으로 포트를 열지 않는다. web(nginx)의 /ai/ 프록시로만 닿는다.
   # - 사진이 디스크에 닿지 않도록 루트 파일 시스템을 읽기 전용으로 둔다(/tmp 는 메모리).
   # - VL 모델은 GPU가 있는 기기에서 돌려야 한다. OLLAMA_URL 로 그 기기의 Ollama 를 가리킨다.
+  # - 환경 변수의 뜻은 hamkke-ai docs/observation.md 2장. 비워 두면(빈 문자열) 서버 기본값을 쓴다.
+  # - 컨테이너 HEALTHCHECK 는 '서버가 살아 있는지'만 본다. 모델 준비 여부는 /ai/v1/health?strict=1 로 따로 감시한다.
   ai:
     profiles: ["ai"]
     build:
       context: ../../hamkke-ai
       dockerfile: server/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     environment:
       NODE_ENV: production
       PORT: "8090"
@@ -70,7 +83,19 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       VL_MODEL: ${VL_MODEL:-qwen3.5:4b}
       VL_MAX_CONCURRENCY: ${VL_MAX_CONCURRENCY:-1}
+      VL_MAX_WAITING: ${VL_MAX_WAITING:-}             # 기본 2
       VL_TIMEOUT_MS: ${VL_TIMEOUT_MS:-180000}
+      VL_MAX_WAIT_MS: ${VL_MAX_WAIT_MS:-}             # 기본 VL_TIMEOUT_MS 의 절반
+      VL_KEEP_ALIVE: ${VL_KEEP_ALIVE:-30m}            # 모델을 메모리에 두는 시간(Ollama 기본 5분 대신 30분)
+      VL_NUM_CTX: ${VL_NUM_CTX:-}                     # 기본 8192
+      VL_MAX_OUTPUT_TOKENS: ${VL_MAX_OUTPUT_TOKENS:-} # 기본 480
+      VL_WARMUP: ${VL_WARMUP:-true}                   # 뜬 뒤 모델을 미리 올려 둔다(기다리지 않음)
+      VL_FALLBACK_MODEL: ${VL_FALLBACK_MODEL:-}       # 첫 모델을 쓸 수 없을 때 대신 쓰는 모델(선택)
+      VL_FALLBACK_URL: ${VL_FALLBACK_URL:-}           # 대신 쓰는 모델의 Ollama 주소(비우면 OLLAMA_URL)
+      OLLAMA_AUTH_TOKEN: ${OLLAMA_AUTH_TOKEN:-}       # Ollama 앞 TLS 프록시의 토큰(선택). 로그에 남지 않는다
+      OLLAMA_AUTH_HEADER: ${OLLAMA_AUTH_HEADER:-}     # 비우면 Authorization: Bearer <토큰>
+      OLLAMA_ALLOW_INSECURE: ${OLLAMA_ALLOW_INSECURE:-false}  # 바깥 주소를 http 로 가리키는 설정을 허용(권하지 않음)
+      METRICS_TOKEN: ${METRICS_TOKEN:-}               # /ai/v1/metrics 에 필요한 Bearer 토큰(선택)
     extra_hosts:
       - "host.docker.internal:host-gateway"   # 같은 기기에서 도는 Ollama 를 쓸 때(리눅스)
     expose:
@@ -86,6 +111,7 @@ services:
   web:
     build: ../../hamkke-web
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - api
     environment:

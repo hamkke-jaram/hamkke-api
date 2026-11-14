@@ -35,6 +35,9 @@ public final class ShareDtos {
 
     public record InviteCodeResponse(String code, Instant expiresAt) {}
 
+    /** 발급한 코드 목록(아직 쓸 수 있는 코드만). */
+    public record UsableInviteCodeResponse(String code, Instant expiresAt, Instant createdAt) {}
+
     public record LinkedTeacherResponse(long teacherId, String displayName, Instant linkedAt) {}
 
     public record LinkRequest(@NotBlank @Size(max = 20) String code) {}

@@ -206,6 +206,30 @@ class AiReceiptVerifierTest {
         assertRejected(c, "iat_in_future");
     }
 
+    /** AIO-06: exp-iat가 15분 이하여야 한다. 오래전 iat에 가까운 exp를 붙인 영수증은 받지 않는다. */
+    @Test
+    void rejectsReceiptWhoseIssuedAtToExpiryGapIsTooLong() {
+        Map<String, Object> c = claims();
+        c.put("iat", NOW.getEpochSecond() - 86_400); // 하루 전 발급
+        c.put("exp", NOW.getEpochSecond() + 300);    // 5분 뒤 만료
+        assertRejected(c, "lifetime_too_long");
+
+        c = claims();
+        c.put("iat", NOW.getEpochSecond() - 1);      // 15분 1초
+        c.put("exp", NOW.getEpochSecond() + 900);
+        assertRejected(c, "lifetime_too_long");
+
+        c = claims();
+        c.put("iat", NOW.getEpochSecond());
+        c.put("exp", NOW.getEpochSecond());          // 만료가 발급보다 뒤가 아님
+        assertRejected(c, "exp_not_after_iat");
+
+        c = claims();
+        c.put("iat", NOW.getEpochSecond() - 300);    // 정확히 15분은 받는다
+        c.put("exp", NOW.getEpochSecond() + 600);
+        assertThat(verifier.verify(sign(c)).childId()).isEqualTo(CHILD);
+    }
+
     /** 분석 토큰은 같은 비밀로 서명되지만 영수증으로 쓸 수 없다(사용자가 가진 토큰으로 기록을 만들 수 없다). */
     @Test
     void sessionTokenIsNotAReceipt() {

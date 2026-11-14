@@ -140,7 +140,7 @@ ID별 백엔드 기능 요구사항(ACC·CHD·REC·CRD·SHR·TCH·SUP)은 **[req
 | 테이블 | 주요 컬럼 | 비고 |
 |---|---|---|
 | `users` | id, email(UQ), password_hash, display_name, role(PARENT/TEACHER), created_at | |
-| `consents` | id, user_id, child_id(NULL 가능), type, version, agreed_at, revoked_at | 아동 삭제 후에도 동의·철회 이력 보존(child_id는 NULL로) |
+| `consents` | id, user_id, child_id(NULL 가능), type, version, agreed_at, revoked_at | 아동 삭제·탈퇴 후에도 동의·철회 이력 보존(child_id·user_id는 NULL로). 주인이 없어진 기록은 철회 시각부터 3년 뒤 파기(7장 '동의 기록 보관') |
 | `refresh_tokens` | id, user_id, token_hash(UQ), expires_at, revoked_at, created_at | |
 | `children` | id, parent_id, nickname, birth_year_month(CHAR 7), created_at | 실명·주민번호 없음 |
 | `share_settings` | child_id(PK), joint_play, response_latency, distress, coaching_cards, ai_observations, institution_capture, updated_at | 기본 false. 뒤의 두 항목은 V5 |
@@ -148,7 +148,7 @@ ID별 백엔드 기능 요구사항(ACC·CHD·REC·CRD·SHR·TCH·SUP)은 **[req
 | `coaching_cards` | id, code(UQ), title, body, situation, metric_focus, evidence_tag, source_title, source_url, author, reviewer, active | `source_title`은 빈 문자열·스페이스만으로 둘 수 없음(CHECK `ck_cards_source_title`, 탭·줄바꿈은 거르지 않음) |
 | `card_deliveries` | id, child_id, card_id, record_id, ai_observation_id, delivered_at, tried_at | 지표 기록의 카드는 record_id, AI 관찰 기록의 카드는 ai_observation_id(그 기록이 지워지면 함께 삭제) |
 | `ai_observations` | id, child_id, created_by(NULL 가능), source(HOME/INSTITUTION), recorded_at, summary(NULL 가능), child_states, adult_responses, moments, people_count, model_version, prompt_version, frame_count, session_jti(UQ), created_at | **사진 컬럼 없음.** 태그 목록·시각별 메모는 JSON 글자(VARCHAR). 아동 삭제 시 CASCADE, 만든 계정 삭제 시 created_by만 NULL (V5) |
-| `invite_codes` | id, child_id, code(UQ), created_at, expires_at, used_at, used_by | |
+| `invite_codes` | id, child_id, code(UQ), created_at, expires_at, used_at, used_by | 부모가 취소하면 그 자리에서 행을 지운다. 만료된 지 7일·사용된 지 7일이 지난 행은 매일 04:27 작업(`ShareService.purgeStaleInviteCodes`)이 지운다(SHR-05) |
 | `teacher_links` | id, teacher_id, child_id, linked_at (UQ teacher+child) | 해제 시 행 삭제 |
 | `child_goals` | id, child_id, teacher_id, title, description, status, created_at, updated_at | |
 | `observation_notes` | id, child_id, teacher_id, content, observed_on, created_at | |
@@ -235,14 +235,18 @@ public interface CardSelector {
 |---|---|
 | 전송 | 운영은 HTTPS만(nginx TLS 종단, HSTS). 카메라·`getUserMedia` 사용에도 HTTPS 필요 |
 | 인증 | `Authorization: Bearer <JWT>`. HS256, 서명 키 32바이트 이상, 환경변수로만 주입(기본값으로 기동 불가) |
-| 비밀번호 | BCrypt(cost 10) |
+| 비밀번호 | BCrypt(cost 10). 변경(`PUT /me/password`)은 지금 비밀번호 확인 후, 그 사용자의 리프레시 토큰을 모두 폐기하고 새 토큰 묶음을 준다. 지금 비밀번호를 틀리면 로그인 실패로 함께 센다 |
+| 로그인 제한 | 이메일당 15분 안에 5번 틀리면 5번째 실패 시각부터 15분 잠금(429), IP당 인증 요청 분당 제한 |
 | 권한 | 역할(`PARENT`/`TEACHER`) + 리소스 소유 검사. 남의 아동은 404로 응답(존재 여부 노출 방지) |
-| 입력 | Bean Validation, 본문 64KB 제한, multipart 비활성 |
+| 입력 | Bean Validation, 본문 64KB 제한, multipart 비활성. 검증 오류 문구(`fieldErrors[].message`)는 요청 언어와 상관없이 칸 이름이 들어간 한국어 해요체(`common/FieldErrorMessages`, DTO에 직접 적은 문구가 있으면 그것) |
 | AI 서버와의 신뢰 | 분석 토큰·영수증 모두 HS256 JWT, 공유 비밀 `AI_SHARED_SECRET`(32바이트 이상, `JWT_SECRET`과 다른 값. 켜져 있는데 없거나 짧거나 같으면 기동하지 않음). 발급자·대상이 서로 달라 분석 토큰을 영수증으로 쓸 수 없다. 영수증은 서명·알고리즘·대상·만료·아이·사용자·출처·`jti`(DB UNIQUE)를 확인하고, 관찰 기록 객체는 태그·길이·개수를 엄격히 검사한 뒤 문장 검사를 한 번 더 한다([ai-observation.md 4·6장](ai-observation.md)) |
 | 요청 제한(AI) | 분석 토큰 발급은 사용자당 시간당 20회(429 `TOO_MANY_ATTEMPTS`) |
 | 헤더 | CSP(self + 필요 최소), X-Content-Type-Options, Referrer-Policy, Permissions-Policy(camera=self, microphone=self) |
 | 로그 | 이메일·토큰·메모 본문을 로그에 남기지 않음. 요청 ID만. AI 관찰 기록도 문장·영수증·분석 토큰을 남기지 않는다(아이 id, 출처, 사유 코드만) |
 | 삭제 | 탈퇴·아동 삭제는 즉시 물리 삭제(동의·철회 이력만 법적 근거용으로 보존). AI 동의 철회도 그 아이의 AI 관찰 기록과 그 기록으로 전달된 카드 이력을 즉시 물리 삭제 |
+| 동의 기록 보관 | 탈퇴로 계정이 지워진 동의 기록(user_id 없음)과 아이 삭제로 아이가 지워진 아이별 동의 기록(child_id 없음, `CHILD_DATA_GUARDIAN`·`CHILD_IMAGE_AI_ANALYSIS`)은 **철회 시각부터 3년**(`app.policy.consent-retention`, 기본 `1095d`) 보관한 뒤 매일 04:37 작업(`ConsentService.purgeOrphanedConsents`)이 물리 삭제한다. 계정이 남아 있는 사람의 기록은 지우지 않는다(내 동의 이력). 기간은 법률 검토 전 가안(11장) |
+| 열람·내려받기 | `GET /me/export`로 본인 데이터를 JSON 파일로 내려받는다(사용자당 시간당 3회). 비밀번호 해시·토큰·영수증·다른 사람의 이메일은 담지 않고, 내용은 로그에 남기지 않는다 |
+| 재동의 | 이용약관·개인정보 처리방침 버전(`app.policy.terms-version`·`privacy-version`)을 올리면 기존 사용자의 `GET /me`·토큰 응답 `pendingConsents`에 그 항목이 담기고, 화면이 `POST /me/consents`로 새 버전 동의를 받는다 |
 | CORS | 운영은 같은 출처(nginx 프록시)라 비활성. 개발은 허용 출처 목록 |
 
 ---
@@ -283,6 +287,8 @@ public interface CardSelector {
 
 위 표는 `common/ErrorCode.java`의 모든 값을 담는다. 코드를 추가하면 이 표도 함께 고친다.
 
+`VALIDATION_FAILED`의 `fieldErrors`는 `[ { "field": "title", "message": "목표 제목은 1~60자로 입력해 주세요." } ]`처럼 칸마다 한국어 문장을 준다. 브라우저 언어가 영어여도 같다(`common/FieldErrorMessages`). 입력값 자체는 문구에 넣지 않는다.
+
 ---
 
 ## 10. 테스트 전략
@@ -296,6 +302,7 @@ public interface CardSelector {
 ## 11. 출시 전 확인 목록 (코드 밖)
 
 - [ ] 약관·개인정보 처리방침 본문 법률 검토 (현재 버전 `2026-11-v1`은 초안)
+- [ ] 주인이 없어진 동의 기록의 보관 기간(가안: 철회 후 3년, `app.policy.consent-retention`) 법률 검토, 개인정보 처리방침 화면에 같은 기간 표기
 - [ ] 상호작용 지표의 민감정보 해당 여부 법률 자문
 - [ ] 코칭 카드 전문가 검수(검수자 필드 채우기)
 - [ ] 상담·기관 안내의 전화번호·링크 최신 여부 확인
