@@ -70,6 +70,21 @@ public class AuthService {
         return email.trim().toLowerCase(Locale.ROOT);
     }
 
+    public static final int DISPLAY_NAME_MAX = 30;
+    public static final String DISPLAY_NAME_MESSAGE = "이름은 1~30자로 입력해 주세요.";
+
+    /**
+     * 표시명 규칙(ACC-01 가입, ACC-08 수정이 같이 쓴다): 앞뒤 공백(전각 공백 포함)을 지운 뒤 1~30자.
+     * 길이는 지운 값으로 잰다. 그래서 '  이름  '처럼 공백 때문에 30자를 넘는 입력도 받아들인다.
+     */
+    public static String normalizeDisplayName(String raw) {
+        String name = raw == null ? "" : raw.strip();
+        if (name.isEmpty() || name.length() > DISPLAY_NAME_MAX) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, DISPLAY_NAME_MESSAGE);
+        }
+        return name;
+    }
+
     @Transactional
     public TokenResponse signup(SignupRequest req) {
         Map<ConsentType, String> given = req.consents().stream()
@@ -80,6 +95,7 @@ public class AuthService {
             throw new ApiException(ErrorCode.CONSENT_REQUIRED);
         }
         requireHashablePassword(req.password());
+        String displayName = normalizeDisplayName(req.displayName());
         String email = normalizeEmail(req.email());
         if (users.existsByEmail(email)) {
             throw new ApiException(ErrorCode.EMAIL_TAKEN);
@@ -88,7 +104,7 @@ public class AuthService {
         User user;
         try {
             user = users.saveAndFlush(new User(email, passwordEncoder.encode(req.password()),
-                    req.displayName().trim(), req.role(), now));
+                    displayName, req.role(), now));
         } catch (DataIntegrityViolationException e) {
             throw new ApiException(ErrorCode.EMAIL_TAKEN);
         }
@@ -115,7 +131,8 @@ public class AuthService {
     @Transactional(noRollbackFor = ApiException.class)
     public TokenResponse refresh(String rawToken) {
         Instant now = clock.instant();
-        RefreshToken token = refreshTokens.findByTokenHash(hash(rawToken))
+        // 행을 잠가 같은 토큰의 동시 회전을 줄 세운다. 둘째 요청은 아래에서 '이미 폐기됨'을 보고 재사용으로 처리된다.
+        RefreshToken token = refreshTokens.findByTokenHashForUpdate(hash(rawToken))
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REFRESH_TOKEN));
         if (token.getRevokedAt() != null) {
             refreshTokens.revokeAllForUser(token.getUserId(), now);

@@ -372,6 +372,24 @@ class AiReceiptVerifierTest {
         assertThat(new AiSettings(props(true, SECRET), true).enabled()).isTrue();
     }
 
+    /** AIO-04: 분석 토큰은 10분까지만. 설정이 그보다 길면 기동하지 않는다. */
+    @Test
+    void sessionLifetimeMustBePositiveAndAtMostTenMinutes() {
+        AppProperties base = props(true, SECRET);
+        java.util.function.Function<Duration, AppProperties> withTtl = ttl -> new AppProperties(base.jwt(),
+                base.policy(), base.corsAllowedOrigins(), base.rateLimit(),
+                new AppProperties.Ai(true, SECRET, 6, ttl));
+        assertThat(new AiSettings(withTtl.apply(Duration.ofMinutes(10)), false).sessionTtl())
+                .isEqualTo(Duration.ofMinutes(10));
+        assertThat(new AiSettings(withTtl.apply(Duration.ofMinutes(5)), false).enabled()).isTrue();
+        assertThatThrownBy(() -> new AiSettings(withTtl.apply(Duration.ofMinutes(10).plusSeconds(1)), false))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("session-ttl");
+        assertThatThrownBy(() -> new AiSettings(withTtl.apply(Duration.ofHours(1)), false))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new AiSettings(withTtl.apply(Duration.ZERO), false))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
     @Test
     void productionRefusesTheLocalDevelopmentSecret() {
         assertThat(new AiSettings(props(true, AiSettings.LOCAL_DEV_SECRET), false).enabled()).isTrue();

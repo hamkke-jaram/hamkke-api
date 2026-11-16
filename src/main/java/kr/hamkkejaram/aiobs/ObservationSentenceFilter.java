@@ -55,6 +55,60 @@ public final class ObservationSentenceFilter {
             "문제", "장애", "이상", "정상", "비정상", "지연", "부족", "산만", "공격", "과잉", "결핍", "의심",
             "해야", "하세요", "바랍니다", "권장");
 
+    /*
+     * 아래 세 목록은 hamkke-ai 서버(server/src/wording.ts)의 ADVICE_PATTERNS·GUESS_PATTERNS·PERSONAL_PATTERNS 와
+     * 같은 식이다. AI 서버가 먼저 거르지만, 설정이 잘못되었거나 다른 서버가 서명한 영수증이 와도 저장하지 않도록
+     * 두 번째 검사도 같은 폭으로 거른다(AIO-09). 한쪽을 고치면 다른 쪽도 고친다.
+     */
+
+    /** 조언·부탁 말투('안아 주세요', '달래 주면 좋겠어요'). '하세요'만으로는 해요체 조언이 지나가서 어미까지 본다. */
+    private static final List<Pattern> ADVICE = patterns(
+            "세요(?![가-힣])",
+            "십시오|시길|시기\\s*바라",
+            "좋겠|좋을\\s*(것|거|듯)|(는|은)\\s*(게|것이|편이)\\s*좋|면\\s*좋아요",
+            "면\\s*(돼요|되어요|됩니다)",
+            "필요|추천|권해|권합|권유|바라요|바래요");
+
+    /** 까닭이나 속마음을 짐작하는 말투('~ 때문이에요', '졸린 것 같아요', '자나 봐요'). */
+    private static final List<Pattern> GUESS = patterns(
+            "때문|덕분",
+            "(것|거|듯)\\s*같",
+            "듯\\s*(해|합|하|싶)",
+            "(^|\\s)아마(도)?(?=\\s)",
+            "어쩌면|추측|짐작|추정",
+            "[가-힣]나\\s?봐요");
+
+    /** '-ㄴ가 봐요'(졸린가 봐요). '아이가 봐요'처럼 받침 없는 말 뒤의 '가'는 주격 조사라 건너뛴다. */
+    private static final Pattern GA_BWAYO = Pattern.compile("([가-힣])가\\s*봐요", FLAGS);
+
+    /** 나이 표기와 생김새를 평가하는 말. 흔한 관찰 문장('살펴봐요', '블록 3세트')은 걸리지 않게 좁게 잡는다. */
+    private static final List<Pattern> PERSONAL = patterns(
+            "\\d+\\s*살(?![펴피짝며살금])",
+            "\\d+\\s*개월",
+            "\\d+\\s*세(?![트대기션팅워우웠])",
+            "(^|[^가-힣])(열\\s?)?(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\\s*살(?![펴피짝며살금])",
+            "예쁘|예쁜|예뻐|귀엽|귀여|잘생|못생|뚱뚱|통통(하|한|해|했)|날씬|말랐");
+
+    private static List<Pattern> patterns(String... regexes) {
+        return java.util.Arrays.stream(regexes).map(r -> Pattern.compile(r, FLAGS)).toList();
+    }
+
+    private static boolean anyMatch(List<Pattern> list, String text) {
+        for (Pattern p : list) {
+            if (p.matcher(text).find()) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasGuessEnding(String text) {
+        var m = GA_BWAYO.matcher(text);
+        while (m.find()) {
+            int finalConsonant = (m.group(1).charAt(0) - 0xAC00) % 28;
+            if (finalConsonant == 4) return true; // 받침 ㄴ
+        }
+        return false;
+    }
+
     /** 저장해도 되는 문장인지. null·빈 문장은 저장할 것이 없으므로 false. */
     public static boolean isAllowed(String text) {
         if (text == null || text.isBlank()) return false;
@@ -64,7 +118,7 @@ public final class ObservationSentenceFilter {
         for (String word : JUDGING_WORDS) {
             if (text.contains(word)) return false;
         }
-        return true;
+        return !anyMatch(ADVICE, text) && !anyMatch(GUESS, text) && !hasGuessEnding(text) && !anyMatch(PERSONAL, text);
     }
 
     /** 금지 표현마다 하나씩, 그 식에 걸리는 보기 낱말. 테스트가 이 낱말들을 직접 적지 않도록 여기서 내준다. */

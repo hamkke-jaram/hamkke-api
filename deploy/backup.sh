@@ -2,20 +2,24 @@
 # 함께자람 MySQL 백업 (docs/deploy.md 5장).
 #   mysqldump → gzip → (선택) gpg 대칭 암호화 → 이 서버의 BACKUP_DIR → (선택) S3 업로드(서버 측 암호화)
 #   → 이 서버에서는 BACKUP_KEEP_DAYS 일이 지난 파일을 지운다. S3 보관 기간은 버킷 수명 주기(s3-lifecycle.json, 30일)로 정한다.
+#   이 서버의 백업을 먼저 끝낸 뒤 S3 에 올린다. S3 쪽이 실패해도 이 서버의 백업은 남는다.
+#   어느 단계든 실패하면 notify.sh 로 알린다(syslog, ALERT_WEBHOOK_URL).
 #
 # 사용: deploy 폴더에서 ./backup.sh      (cron 예는 docs/deploy.md 5장)
 # 설정: deploy/.env 에서 아래 이름만 한 줄씩 꺼내 읽는다(.env 를 통째로 셸에서 실행하지 않는다).
 #   BACKUP_DIR                 백업 파일을 둘 폴더(기본 $HOME/backup)
-#   BACKUP_KEEP_DAYS           이 서버에 두는 일수(기본 7)
-#   BACKUP_S3_URI              예: s3://hamkke-backup/mysql   (비우면 올리지 않는다)
+#   BACKUP_KEEP_DAYS           이 서버에 두는 일수(기본 7, 1 이상)
+#   BACKUP_S3_URI              버킷의 mysql/ 아래여야 한다. 예: s3://hamkke-backup/mysql   (비우면 올리지 않는다)
 #   BACKUP_S3_SSE              AES256(기본) 또는 aws:kms
 #   BACKUP_S3_KMS_KEY_ID       aws:kms 일 때 쓸 KMS 키(선택)
 #   BACKUP_PASSPHRASE_FILE     정하면 gpg(AES256)로 한 번 더 암호화한다. 파일 권한 600, 백업과 다른 곳에 사본을 둔다
 #
 # 백업에는 아동 정보와 AI 관찰 기록(글자)이 들어 있다. 사진은 어디에도 저장되지 않으므로 백업에도 없다.
 # 비밀번호는 명령줄에 쓰지 않는다(컨테이너 안에서 MYSQL_PWD 로 넘긴다). 로그에는 파일 이름·크기만 남긴다.
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
+# cron 의 PATH 는 /usr/bin:/bin 뿐이다. aws CLI(공식 설치는 /usr/local/bin, snap 은 /snap/bin)를 찾을 수 있게 넓힌다.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin${PATH:+:$PATH}"
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DEPLOY_DIR"
@@ -27,7 +31,17 @@ env_value() {
 }
 
 log() { printf '%s backup: %s\n' "$(date -u +%FT%TZ)" "$*"; }
-fail() { log "실패: $*" >&2; exit 1; }
+alerted=false
+alert() {
+  $alerted && return 0
+  alerted=true
+  bash "$DEPLOY_DIR/notify.sh" "백업 실패: $*" >/dev/null 2>&1 || log "알림을 보내지 못했어요(notify.sh)" >&2
+}
+fail() { log "실패: $*" >&2; alert "$*"; exit 1; }
+# fail 을 거치지 않고 멈춘 경우(덤프 도중 docker 오류 등)에도 알린다.
+# 파이프라인 안의 서브셸도 트랩을 물려받으므로(set -E) 본 셸에서만 알린다(아니면 두 번 간다).
+main_pid=$$
+trap '[ "$BASHPID" = "$main_pid" ] && alert "${LINENO}번째 줄에서 멈췄어요. 로그를 확인하세요"' ERR
 
 BACKUP_DIR="${BACKUP_DIR:-$(env_value BACKUP_DIR)}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/backup}"
@@ -39,15 +53,23 @@ S3_SSE="${S3_SSE:-AES256}"
 KMS_KEY_ID="${BACKUP_S3_KMS_KEY_ID:-$(env_value BACKUP_S3_KMS_KEY_ID)}"
 PASSPHRASE_FILE="${BACKUP_PASSPHRASE_FILE:-$(env_value BACKUP_PASSPHRASE_FILE)}"
 
-[[ "$KEEP_DAYS" =~ ^[0-9]+$ ]] || fail "BACKUP_KEEP_DAYS 는 0 이상의 정수여야 해요"
-case "$S3_SSE" in AES256|aws:kms) ;; *) fail "BACKUP_S3_SSE 는 AES256 또는 aws:kms 여야 해요" ;; esac
+[[ "$KEEP_DAYS" =~ ^[1-9][0-9]*$ ]] || fail "BACKUP_KEEP_DAYS 는 1 이상의 정수여야 해요"
 if [ -n "$PASSPHRASE_FILE" ]; then
+  # 암호화하기로 했으면 암호화하지 못할 때 평문으로 남기지 않는다.
   [ -r "$PASSPHRASE_FILE" ] || fail "BACKUP_PASSPHRASE_FILE 을 읽을 수 없어요"
   command -v gpg >/dev/null || fail "gpg 가 없어요(sudo apt install -y gnupg)"
 fi
+
+# S3 설정은 여기서 확인만 해 두고, 문제가 있어도 이 서버의 백업은 먼저 만든다.
+s3_problem=""
 if [ -n "$S3_URI" ]; then
-  [[ "$S3_URI" == s3://* ]] || fail "BACKUP_S3_URI 는 s3:// 로 시작해야 해요"
-  command -v aws >/dev/null || fail "aws CLI 가 없어요"
+  if [[ ! "${S3_URI%/}/" =~ ^s3://[^/]+/mysql/ ]]; then
+    s3_problem="BACKUP_S3_URI 는 버킷의 mysql/ 아래여야 해요(예: s3://hamkke-backup/mysql). 그래야 30일 수명 주기 규칙(s3-lifecycle.json)이 적용돼요"
+  elif ! command -v aws >/dev/null; then
+    s3_problem="aws CLI 가 없어요. docs/deploy.md 5장대로 설치하세요"
+  else
+    case "$S3_SSE" in AES256|aws:kms) ;; *) s3_problem="BACKUP_S3_SSE 는 AES256 또는 aws:kms 여야 해요" ;; esac
+  fi
 fi
 
 mkdir -p "$BACKUP_DIR"
@@ -78,14 +100,18 @@ mv "$partial" "$target"
 (cd "$BACKUP_DIR" && sha256sum "$name" > "$name.sha256")
 log "완료 $(du -h "$target" | cut -f1)"
 
+# 이 서버에 둔 오래된 백업을 지운다(S3 는 수명 주기 규칙이 지운다).
+# -mtime +N 은 N+1 일이 지나야 지워서 하루 더 남는다. 분 단위로 정확히 N 일이 지난 파일만 지운다.
+find "$BACKUP_DIR" -maxdepth 1 -type f -name 'hamkke-*.sql.gz*' -mmin +$((KEEP_DAYS * 1440)) -print -delete | sed 's/^/  지움: /'
+log "보관 정리 완료(${KEEP_DAYS}일)"
+
 if [ -n "$S3_URI" ]; then
+  [ -z "$s3_problem" ] || fail "이 서버에는 백업했지만 S3 에 올리지 못했어요: $s3_problem"
   sse_args=(--sse "$S3_SSE")
   [ "$S3_SSE" = "aws:kms" ] && [ -n "$KMS_KEY_ID" ] && sse_args+=(--sse-kms-key-id "$KMS_KEY_ID")
-  aws s3 cp --only-show-errors "${sse_args[@]}" "$target" "${S3_URI%/}/$name"
-  aws s3 cp --only-show-errors "${sse_args[@]}" "$target.sha256" "${S3_URI%/}/$name.sha256"
+  aws s3 cp --only-show-errors "${sse_args[@]}" "$target" "${S3_URI%/}/$name" \
+    || fail "이 서버에는 백업했지만 S3 업로드에 실패했어요($name)"
+  aws s3 cp --only-show-errors "${sse_args[@]}" "$target.sha256" "${S3_URI%/}/$name.sha256" \
+    || fail "이 서버에는 백업했지만 S3 에 .sha256 을 올리지 못했어요($name)"
   log "S3 업로드 완료(서버 측 암호화 $S3_SSE)"
 fi
-
-# 이 서버에 둔 오래된 백업을 지운다(S3 는 수명 주기 규칙이 지운다).
-find "$BACKUP_DIR" -maxdepth 1 -type f -name 'hamkke-*.sql.gz*' -mtime +"$KEEP_DAYS" -print -delete | sed 's/^/  지움: /'
-log "보관 정리 완료(${KEEP_DAYS}일)"

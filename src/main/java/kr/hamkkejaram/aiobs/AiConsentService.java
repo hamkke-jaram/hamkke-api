@@ -94,6 +94,9 @@ public class AiConsentService {
      */
     @Transactional
     public void revoke(AuthUser user, long childId) {
+        // 저장 중인 관찰 기록(AiObservationService.save)과 줄 세운다. 저장이 먼저 끝나면 아래 삭제가 그 기록까지 지우고,
+        // 철회가 먼저 끝나면 저장은 철회된 동의를 보고 거절된다. 잠그지 않으면 철회 뒤에 기록이 남을 수 있다(AIO-03).
+        access.lockChild(childId);
         access.requireOwner(user, childId);
         Instant now = clock.instant();
         consents.findByChildIdAndTypeAndRevokedAtIsNull(childId, TYPE).forEach(c -> c.revoke(now));

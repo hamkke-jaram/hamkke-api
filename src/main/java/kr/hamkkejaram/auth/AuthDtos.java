@@ -27,7 +27,9 @@ public final class AuthDtos {
             @NotBlank @Size(min = 8, max = 64, message = PASSWORD_SIZE_MESSAGE)
             @Pattern(regexp = PASSWORD_PATTERN, message = PASSWORD_PATTERN_MESSAGE)
             String password,
-            @NotBlank @Size(max = 30) String displayName,
+            // 앞뒤 공백을 지운 뒤 1~30자인지는 AuthService.normalizeDisplayName이 본다(내 정보 수정과 같은 규칙).
+            // 비었을 때의 문구는 공통 메시지(이름을 입력해 주세요)를 그대로 쓴다.
+            @NotBlank @Size(max = 64, message = AuthService.DISPLAY_NAME_MESSAGE) String displayName,
             @NotNull Role role,
             @NotNull @Size(max = 10) List<@Valid ConsentInput> consents) {}
 

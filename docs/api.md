@@ -41,7 +41,7 @@
 | GET | `/me` | P, T | 내 정보 `{ id, email, displayName, role, pendingConsents }` — `pendingConsents`는 아래 '재동의' 참고 |
 | PATCH | `/me` | P, T | 표시명 수정 `{ displayName }`(앞뒤 공백을 지운 뒤 1~30자, 공백만은 안 됨) → 200 `GET /me`와 같은 본문 (ACC-08) |
 | PUT | `/me/password` | P, T | 비밀번호 변경 `{ currentPassword, newPassword }` → 200 토큰 묶음(아래) (ACC-09) |
-| DELETE | `/me` | P, T | 탈퇴(즉시 삭제). 본문 `{ "password": "..." }` → 204. 비밀번호가 다르면 401 `INVALID_CREDENTIALS` |
+| DELETE | `/me` | P, T | 탈퇴(즉시 삭제). 본문 `{ "password": "..." }` → 204. 비밀번호가 다르면 401 `INVALID_CREDENTIALS`. 로그인과 같은 제한: IP당 요청이 많거나, 이 계정의 비밀번호를 거듭 틀려 잠겼으면 429 `TOO_MANY_ATTEMPTS`(틀린 횟수는 로그인 실패와 함께 센다) |
 | GET | `/me/consents` | P, T | 내 동의 이력 `[ { type, version, childId, agreedAt, revokedAt } ]` (최신순) |
 | POST | `/me/consents` | P, T | 바뀐 문서에 다시 동의 `{ type, version }` → 204 (ACC-10) |
 | GET | `/me/export` | P, T | 내 데이터 내려받기 → 200 JSON 파일(아래) (ACC-11) |
@@ -142,7 +142,9 @@
 { "nickname": "바다" }
 ```
 
-PATCH 검증: `nickname`은 1~20자이며 공백만으로 된 값(`"   "`)은 400 `VALIDATION_FAILED`, 앞뒤 공백은 지우고 저장한다. `birthYearMonth`는 `YYYY-MM`, 만 0~6세 범위.
+PATCH 검증: `nickname`은 1~20자이며 공백만으로 된 값(`"   "`, 전각 공백 포함)은 400 `VALIDATION_FAILED`, 앞뒤 공백(전각 공백 포함)은 지우고 저장한다. `birthYearMonth`는 `YYYY-MM`, 만 0~6세 범위. POST도 별칭은 같은 규칙이다.
+
+POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agreed`가 `true`가 아니거나, `version`이 비었거나 지금 버전과 다르면 모두 422 `GUARDIAN_CONSENT_REQUIRED`이고 아무것도 저장하지 않는다(CHD-02).
 
 ## 4. 상호작용 기록
 

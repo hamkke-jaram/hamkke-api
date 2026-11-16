@@ -58,6 +58,10 @@ jobs:
           rm .env
       - name: 운영 스크립트 검사 (백업·복원·인증서 갱신)
         run: |
-          for f in deploy/backup.sh deploy/restore.sh deploy/renew-cert.sh; do bash -n "$f"; done
-          shellcheck -S warning deploy/backup.sh deploy/restore.sh deploy/renew-cert.sh
+          for f in deploy/backup.sh deploy/restore.sh deploy/renew-cert.sh deploy/notify.sh; do bash -n "$f"; done
+          shellcheck -S warning deploy/backup.sh deploy/restore.sh deploy/renew-cert.sh deploy/notify.sh
+          # DB 비밀번호를 명령줄(-p…)에 쓰지 않는다(호스트 ps 에 보인다). set -e 는 '! 명령'을 실패로 보지 않으므로 if 로 쓴다.
+          if grep -nE -- '-p\$\$?\{?MYSQL_(ROOT_)?PASSWORD' deploy/docker-compose.yml; then
+            echo "docker-compose.yml 에서 비밀번호를 -p 로 넘기고 있어요. MYSQL_PWD 를 쓰세요"; exit 1
+          fi
           jq -e '.Rules[0].Expiration.Days == 30' deploy/s3-lifecycle.json

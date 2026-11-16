@@ -45,7 +45,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/me")
 public class MeController {
-    static final int DISPLAY_NAME_MAX = 30;
     static final String EXPORT_FILENAME = "hamkke-jaram-export.json";
 
     private final UserRepository users;
@@ -74,12 +73,12 @@ public class MeController {
 
     public record DeleteAccountRequest(@NotBlank @Size(max = 64) String password) {}
 
-    /** 표시명은 앞뒤 공백을 지운 뒤 1~30자여야 한다. 길이 상한은 공백을 지운 값으로 다시 확인한다. */
+    /** 표시명은 앞뒤 공백을 지운 뒤 1~30자여야 한다. 길이 상한은 공백을 지운 값으로 다시 확인한다(가입과 같은 규칙). */
     public record UpdateMeRequest(
             @NotBlank(message = DISPLAY_NAME_MESSAGE) @Size(max = 64, message = DISPLAY_NAME_MESSAGE)
             String displayName) {}
 
-    static final String DISPLAY_NAME_MESSAGE = "이름은 1~30자로 입력해 주세요.";
+    static final String DISPLAY_NAME_MESSAGE = AuthService.DISPLAY_NAME_MESSAGE;
 
     public record ConsentRequest(@NotNull ConsentType type, @NotBlank @Size(max = 30) String version) {}
 
@@ -100,10 +99,7 @@ public class MeController {
     @PatchMapping
     @Transactional
     public UserResponse update(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody UpdateMeRequest req) {
-        String name = req.displayName().trim();
-        if (name.isEmpty() || name.length() > DISPLAY_NAME_MAX) {
-            throw new ApiException(ErrorCode.VALIDATION_FAILED, DISPLAY_NAME_MESSAGE);
-        }
+        String name = AuthService.normalizeDisplayName(req.displayName());
         User u = currentUser(user);
         u.changeDisplayName(name);
         return response(u);
@@ -150,9 +146,15 @@ public class MeController {
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Transactional
-    public void delete(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody DeleteAccountRequest req) {
+    public void delete(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody DeleteAccountRequest req,
+                       HttpServletRequest http) {
+        // 비밀번호를 확인하는 곳이라 로그인·비밀번호 변경과 같은 제한을 건다(ACC-06): IP당 요청 수,
+        // 그리고 틀린 횟수는 로그인 실패로 세어 5번이면 15분 잠근다. 아니면 액세스 토큰만 있으면 비밀번호를 끝없이 맞춰 볼 수 있다.
+        rateLimiter.checkAuthRequest(http.getRemoteAddr());
         User u = currentUser(user);
+        rateLimiter.checkLoginAllowed(u.getEmail());
         if (!passwordEncoder.matches(req.password(), u.getPasswordHash())) {
+            rateLimiter.recordLoginFailure(u.getEmail());
             throw new ApiException(ErrorCode.INVALID_CREDENTIALS, "비밀번호가 맞지 않아요.");
         }
         Instant now = clock.instant();

@@ -95,6 +95,8 @@ public class ShareService {
 
     @Transactional
     public InviteCodeResponse issueInviteCode(AuthUser user, long childId) {
+        // 세고 넣는 사이에 다른 발급이 끼어들면 3개 한도를 넘는다(SHR-02). 아이 행을 잠가 줄 세운다.
+        access.lockChild(childId);
         access.requireOwner(user, childId);
         Instant now = clock.instant();
         if (codes.countUsable(childId, now) >= MAX_USABLE_CODES) {

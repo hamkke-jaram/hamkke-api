@@ -86,6 +86,8 @@ public class AiObservationService {
     /** 영수증을 검증해 관찰 기록을 저장한다. 가정 기록이면 카드 1장을 골라 전달한다. */
     @Transactional
     public SaveObservationResponse save(AuthUser user, long childId, SaveObservationRequest req) {
+        // 동의 철회(AiConsentService.revoke)와 줄 세운다(AIO-03). 잠근 뒤에 동의를 읽어야 막 커밋된 철회를 본다.
+        access.lockChild(childId);
         ObservationSource source = requireCaptureAllowed(user, childId);
 
         AiReceiptVerifier.Verified receipt;

@@ -13,6 +13,7 @@ import kr.hamkkejaram.consent.ConsentType;
 import kr.hamkkejaram.security.AuthUser;
 import kr.hamkkejaram.share.ShareSetting;
 import kr.hamkkejaram.share.ShareSettingRepository;
+import kr.hamkkejaram.user.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,15 +33,17 @@ public class ChildService {
     private final ConsentRepository consents;
     private final ShareSettingRepository shareSettings;
     private final ChildAccess access;
+    private final UserRepository users;
     private final AppProperties props;
     private final Clock clock;
 
     public ChildService(ChildRepository children, ConsentRepository consents, ShareSettingRepository shareSettings,
-                        ChildAccess access, AppProperties props, Clock clock) {
+                        ChildAccess access, UserRepository users, AppProperties props, Clock clock) {
         this.children = children;
         this.consents = consents;
         this.shareSettings = shareSettings;
         this.access = access;
+        this.users = users;
         this.props = props;
         this.clock = clock;
     }
@@ -48,17 +51,21 @@ public class ChildService {
     @Transactional
     public ChildResponse create(AuthUser user, CreateChildRequest req) {
         user.requireParent();
+        // 동의는 형식 검사(400)가 아니라 여기서 본다: 없거나 agreed가 true가 아니거나 버전이 다르면 모두 422(CHD-02).
         var consent = req.guardianConsent();
         if (consent == null || !Boolean.TRUE.equals(consent.agreed())
                 || !props.policy().guardianVersion().equals(consent.version())) {
             throw new ApiException(ErrorCode.GUARDIAN_CONSENT_REQUIRED);
         }
+        // 세고 넣는 사이에 같은 보호자의 다른 등록이 끼어들면 5명 한도를 넘는다(CHD-05). 보호자 행을 잠가 줄 세운다.
+        users.lockById(user.id());
         if (children.countByParentId(user.id()) >= MAX_CHILDREN_PER_PARENT) {
             throw new ApiException(ErrorCode.CHILD_LIMIT_REACHED);
         }
         YearMonth birth = parseBirth(req.birthYearMonth());
         Instant now = clock.instant();
-        Child child = children.save(new Child(user.id(), req.nickname().trim(), birth, now));
+        // strip(): trim()과 달리 전각 공백(U+3000)도 지운다.
+        Child child = children.save(new Child(user.id(), req.nickname().strip(), birth, now));
         consents.save(new Consent(user.id(), child.getId(), ConsentType.CHILD_DATA_GUARDIAN,
                 props.policy().guardianVersion(), now));
         shareSettings.save(ShareSetting.allPrivate(child.getId(), now));
@@ -81,7 +88,7 @@ public class ChildService {
     @Transactional
     public ChildResponse update(AuthUser user, long childId, UpdateChildRequest req) {
         Child child = access.requireOwner(user, childId);
-        child.update(req.nickname() == null ? null : req.nickname().trim(),
+        child.update(req.nickname() == null ? null : req.nickname().strip(),
                 req.birthYearMonth() == null ? null : parseBirth(req.birthYearMonth()));
         return ChildResponse.from(child, today());
     }

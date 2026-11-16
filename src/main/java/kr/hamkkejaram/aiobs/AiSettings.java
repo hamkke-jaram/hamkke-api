@@ -20,6 +20,8 @@ import java.time.Duration;
 @Component
 public class AiSettings {
     static final int MIN_SECRET_BYTES = 32;
+    /** 분석 토큰 수명의 상한(AIO-04). */
+    static final Duration MAX_SESSION_TTL = Duration.ofMinutes(10);
     /** local 프로필의 개발용 기본값(application.yml, hamkke-ai 서버의 개발용 기본값과 같다). 운영에서는 쓸 수 없다. */
     static final String LOCAL_DEV_SECRET = "local-dev-only-ai-shared-secret-change-me-0123456789";
 
@@ -59,8 +61,11 @@ public class AiSettings {
             throw new IllegalStateException("app.ai.shared-secret (AI_SHARED_SECRET) must not be the local "
                     + "development default in production.");
         }
-        if (sessionTtl.isNegative() || sessionTtl.isZero()) {
-            throw new IllegalStateException("app.ai.session-ttl must be positive.");
+        // 분석 토큰은 10분까지만(AIO-04). 더 길게 두면 동의를 철회한 뒤에도 남은 토큰으로 사진을 보낼 수 있는 시간이 늘어난다.
+        // hamkke-ai 서버도 수명이 10분(+반올림 1분)을 넘는 토큰은 받지 않는다(server/src/jwt.ts).
+        if (sessionTtl.isNegative() || sessionTtl.isZero() || sessionTtl.compareTo(MAX_SESSION_TTL) > 0) {
+            throw new IllegalStateException("app.ai.session-ttl must be positive and at most " + MAX_SESSION_TTL
+                    + " (docs/requirements.md AIO-04).");
         }
         // 키 길이에 따라 알고리즘이 바뀌지 않도록 HS256용 키로 못 박는다(계약: 토큰·영수증 모두 HS256).
         this.key = new SecretKeySpec(bytes, "HmacSHA256");

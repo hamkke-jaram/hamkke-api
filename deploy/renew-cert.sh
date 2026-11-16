@@ -3,13 +3,15 @@
 #
 #   sudo ./renew-cert.sh            certbot renew(webroot) → 갱신된 인증서가 있으면 certs/ 로 복사하고 nginx 를 다시 읽힌다
 #   sudo ./renew-cert.sh --dry-run  Let's Encrypt 연습 서버로 갱신 절차만 확인한다(인증서는 바뀌지 않는다)
-#   ./renew-cert.sh check [일수]    certs/fullchain.pem 이 [일수](기본 14)일 안에 만료되면 0 이 아닌 값으로 끝난다
+#   ./renew-cert.sh check [일수]    certs/fullchain.pem 이 [일수](기본 14)일 안에 만료되면 알리고 0 이 아닌 값으로 끝난다
 #   (deploy-hook)                   certbot 이 갱신 직후 부른다. 직접 부를 일은 없다
 #
 # 갱신은 nginx 가 /.well-known/acme-challenge/ 를 ./certbot-www 에서 내주는 webroot 방식이다(80 포트를 비우지 않아도 된다).
 # 처음 발급(certbot certonly --standalone)은 3장 절차대로 한 번 한다.
-set -euo pipefail
+# 갱신이 실패하거나 만료가 가까우면 notify.sh 로 알린다(syslog, ALERT_WEBHOOK_URL).
+set -Eeuo pipefail
 umask 022
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin${PATH:+:$PATH}"
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$DEPLOY_DIR/$(basename "${BASH_SOURCE[0]}")"
@@ -20,7 +22,16 @@ env_value() {
   { grep -E "^$1=" .env || true; } | tail -n 1 | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
 log() { printf '%s renew-cert: %s\n' "$(date -u +%FT%TZ)" "$*"; }
-fail() { log "실패: $*" >&2; exit 1; }
+alerted=false
+alert() {
+  $alerted && return 0
+  alerted=true
+  bash "$DEPLOY_DIR/notify.sh" "TLS 인증서: $*" >/dev/null 2>&1 || log "알림을 보내지 못했어요(notify.sh)" >&2
+}
+fail() { log "실패: $*" >&2; alert "$*"; exit 1; }
+# 서브셸도 트랩을 물려받으므로(set -E) 본 셸에서만 알린다.
+main_pid=$$
+trap '[ "$BASHPID" = "$main_pid" ] && alert "renew-cert.sh 가 ${LINENO}번째 줄에서 멈췄어요. /var/log/hamkke-renew-cert.log 를 확인하세요"' ERR
 
 SERVER_NAME="$(env_value SERVER_NAME)"
 CERT_DIR="$(env_value CERT_DIR)"
@@ -38,6 +49,7 @@ check() {
     log "만료 $end — ${days}일 안에 만료되지 않아요"
   else
     log "만료 $end — ${days}일 안에 만료돼요. sudo ./renew-cert.sh 를 실행하세요" >&2
+    alert "${SERVER_NAME:-인증서}이(가) ${days}일 안에 만료돼요(만료 $end). 자동 갱신이 실패하고 있을 수 있어요. sudo ./renew-cert.sh 를 실행하고 로그를 확인하세요"
     return 1
   fi
 }
@@ -62,7 +74,8 @@ deploy_hook() {
 }
 
 case "${1:-}" in
-  check) check "${2:-14}"; exit $? ;;
+  # check 가 실패하면 이미 알렸으니 ERR 트랩을 거치지 않고 끝낸다.
+  check) if check "${2:-14}"; then exit 0; else exit 1; fi ;;
   deploy-hook) deploy_hook; exit 0 ;;
 esac
 
@@ -74,5 +87,6 @@ extra=()
 [ "${1:-}" = "--dry-run" ] && extra+=(--dry-run)
 # --webroot: 처음 standalone 으로 받았어도 이 실행부터 webroot 로 갱신한다(설정에 저장된다).
 # --deploy-hook: 실제로 갱신된 인증서가 있을 때만 불린다(--dry-run 에서는 불리지 않는다).
-certbot renew --quiet --webroot -w "$DEPLOY_DIR/certbot-www" --deploy-hook "$SELF deploy-hook" "${extra[@]}"
+certbot renew --quiet --webroot -w "$DEPLOY_DIR/certbot-www" --deploy-hook "$SELF deploy-hook" "${extra[@]}" \
+  || fail "certbot renew 가 실패했어요. /var/log/letsencrypt/letsencrypt.log 를 확인하세요"
 log "certbot renew 끝(갱신할 때가 아니면 아무것도 바꾸지 않아요)"

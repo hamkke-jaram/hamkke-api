@@ -35,7 +35,8 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      # 비밀번호는 명령줄(-p)이 아니라 MYSQL_PWD 로 넘긴다. 명령줄에 쓰면 호스트의 ps 에 보이고 경고가 상태 기록에 쌓인다.
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysqladmin ping -h 127.0.0.1 -u\"$$MYSQL_USER\" --silent"]
       interval: 10s
       timeout: 5s
       retries: 10

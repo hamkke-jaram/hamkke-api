@@ -86,19 +86,19 @@ Let's Encrypt 인증서는 90일짜리다. 갱신은 `deploy/renew-cert.sh`가 �
 
 ```bash
 cd ~/hamkke/hamkke-api/deploy
-chmod +x renew-cert.sh backup.sh restore.sh
+chmod +x renew-cert.sh backup.sh restore.sh notify.sh
 sudo ./renew-cert.sh --dry-run   # 연습 서버로 갱신 절차만 확인(처음 한 번)
-./renew-cert.sh check            # certs/fullchain.pem 이 14일 안에 만료되면 0 이 아닌 값으로 끝난다
+./renew-cert.sh check            # certs/fullchain.pem 이 14일 안에 만료되면 알리고 0 이 아닌 값으로 끝난다
 ```
 
-root의 crontab에 넣는다(`sudo crontab -e`). 하루 두 번 시도하고, 매일 아침 만료가 가까운지 확인한다.
+root의 crontab에 넣는다(`sudo crontab -e`). 하루 두 번 시도하고, 매일 아침 만료가 가까운지 확인한다. 갱신이 실패하거나 만료가 14일 안이면 스크립트가 직접 알린다(5.3절 `ALERT_WEBHOOK_URL`). 알림 주소를 채우지 않으면 syslog에만 남아 아무도 모를 수 있다.
 
 ```cron
 17 3,15 * * * /home/ubuntu/hamkke/hamkke-api/deploy/renew-cert.sh >> /var/log/hamkke-renew-cert.log 2>&1
-30 9 * * *    /home/ubuntu/hamkke/hamkke-api/deploy/renew-cert.sh check 14 >> /var/log/hamkke-renew-cert.log 2>&1 || logger -t hamkke "TLS 인증서가 14일 안에 만료돼요"
+30 9 * * *    /home/ubuntu/hamkke/hamkke-api/deploy/renew-cert.sh check 14 >> /var/log/hamkke-renew-cert.log 2>&1
 ```
 
-브라우저 쪽에서 확인: `echo | openssl s_client -connect $SERVER_NAME:443 -servername $SERVER_NAME 2>/dev/null | openssl x509 -noout -enddate`. 가동 감시 서비스를 쓰면 인증서 만료 알림(14일 전)도 켠다.
+브라우저 쪽에서 확인: `echo | openssl s_client -connect $SERVER_NAME:443 -servername $SERVER_NAME 2>/dev/null | openssl x509 -noout -enddate`. 서버가 통째로 멈추면 서버 안의 알림도 멈추므로, 바깥 가동 감시 서비스의 인증서 만료 알림(14일 전)도 함께 켜 두면 좋다.
 
 ## 4. 실행
 
@@ -132,20 +132,29 @@ proxy_set_header X-Forwarded-For $remote_addr;   # 덮어쓰기: 클라이언트
 1. `mysqldump --single-transaction --no-tablespaces`(잠그지 않는 일관된 덤프, 앱 계정 권한으로 충분) → `gzip -9`. DB 비밀번호는 명령줄에 쓰지 않고 컨테이너 안에서 `MYSQL_PWD`로 넘긴다.
 2. (선택) `BACKUP_PASSPHRASE_FILE`이 있으면 gpg(AES256)로 한 번 더 암호화한다(`.sql.gz.gpg`).
 3. `BACKUP_DIR`(기본 `~/backup`, 권한 700)에 `hamkke-<UTC 시각>.sql.gz[.gpg]`와 `.sha256`을 둔다.
-4. (선택) `BACKUP_S3_URI`가 있으면 `aws s3 cp --sse AES256`(또는 `BACKUP_S3_SSE=aws:kms`)으로 올린다.
-5. 이 서버에서는 `BACKUP_KEEP_DAYS`(기본 7)일이 지난 백업을 지운다.
+4. 이 서버에서는 `BACKUP_KEEP_DAYS`(기본 7)일이 지난 백업을 지운다(분 단위로 7일이 지난 파일. 매일 돌리면 7개가 남는다).
+5. (선택) `BACKUP_S3_URI`가 있으면 `aws s3 cp --sse AES256`(또는 `BACKUP_S3_SSE=aws:kms`)으로 올린다.
+
+이 서버의 백업(1~4)을 먼저 끝낸 뒤 S3에 올린다. aws CLI가 없거나 `BACKUP_S3_URI`가 버킷의 `mysql/` 아래가 아니거나 업로드가 실패해도 이 서버의 백업은 남고, 스크립트는 실패로 끝나며 알린다(5.3절). 어느 단계든 멈추면 마찬가지로 알린다. cron의 `PATH`는 `/usr/bin:/bin`뿐이라 스크립트가 `/usr/local/bin`·`/snap/bin`을 직접 더한다.
 
 `.env`에 채울 값(스크립트는 이 이름들만 한 줄씩 꺼내 읽는다):
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `BACKUP_DIR` | `~/backup` | 이 서버에 두는 폴더 |
-| `BACKUP_KEEP_DAYS` | 7 | 이 서버에 두는 일수 |
-| `BACKUP_S3_URI` | 없음 | 예: `s3://hamkke-backup/mysql`. 비우면 올리지 않는다 |
+| `BACKUP_KEEP_DAYS` | 7 | 이 서버에 두는 일수(1 이상) |
+| `BACKUP_S3_URI` | 없음 | 버킷의 `mysql/` 아래여야 한다(수명 주기 규칙의 범위). 예: `s3://hamkke-backup/mysql`. 비우면 올리지 않는다 |
 | `BACKUP_S3_SSE`, `BACKUP_S3_KMS_KEY_ID` | `AES256`, 없음 | S3 서버 측 암호화 방식(`AES256`·`aws:kms`)과 KMS 키 |
 | `BACKUP_PASSPHRASE_FILE` | 없음 | gpg 암호 파일 경로(권한 600). 이 파일의 사본은 서버 밖 안전한 곳(팀 비밀번호 관리자)에 둔다. 잃으면 백업을 풀 수 없다 |
 
 S3 준비(한 번): 버킷은 공개 접근 차단, 기본 암호화 켜기, 아래 수명 주기 규칙으로 30일 뒤 지운다. EC2에는 그 버킷의 `mysql/` 아래에 `s3:PutObject`·`s3:GetObject`만 허용한 IAM 역할을 붙인다(액세스 키를 서버에 두지 않는다).
+
+aws CLI는 Ubuntu 24.04 apt에 없으니 snap으로 설치하고, cron과 같은 조건(PATH)에서 찾히는지 확인한다.
+
+```bash
+sudo snap install aws-cli --classic          # /snap/bin/aws (공식 설치 프로그램을 쓰면 /usr/local/bin/aws)
+env -i HOME="$HOME" PATH=/usr/bin:/bin bash -c 'cd ~/hamkke/hamkke-api/deploy && ./backup.sh'   # cron 과 같은 PATH 로 한 번 돌려 본다
+```
 
 ```bash
 aws s3api put-public-access-block --bucket hamkke-backup \
@@ -160,22 +169,24 @@ aws s3api put-bucket-lifecycle-configuration --bucket hamkke-backup --lifecycle-
 cron(`crontab -e`, ubuntu 사용자). 로그 파일을 그 폴더에 쓰므로 폴더를 먼저 만든다(`mkdir -p ~/backup && chmod 700 ~/backup`, 없으면 cron 이 스크립트를 실행하지 못한다):
 
 ```cron
-0 4 * * * /home/ubuntu/hamkke/hamkke-api/deploy/backup.sh >> /home/ubuntu/backup/backup.log 2>&1
+0 4 * * *  /home/ubuntu/hamkke/hamkke-api/deploy/backup.sh >> /home/ubuntu/backup/backup.log 2>&1
+30 5 1 * * /home/ubuntu/hamkke/hamkke-api/deploy/restore.sh --drill latest >> /home/ubuntu/backup/drill.log 2>&1
 ```
 
-로그에는 파일 이름·크기·지운 파일만 남는다.
+로그에는 파일 이름·크기·지운 파일만 남는다. 두 번째 줄은 5.1절의 월 1회 복원 연습이다.
 
 ### 5.1 복원 연습 (한 달에 한 번, `deploy/restore.sh --drill`)
 
-복원해 본 적 없는 백업은 백업이 아니다. 운영 DB를 건드리지 않는 연습 모드로 확인한다.
+복원해 본 적 없는 백업은 백업이 아니다. 운영 DB를 건드리지 않는 연습 모드로 확인한다. 위 cron이 매달 1일 05:30에 가장 최근 백업(`latest`)으로 연습하고, **통과해도 실패해도 알린다**(5.3절). 매달 '복원 연습 통과' 알림이 오면 백업이 실제로 복원되고 알림도 닿는다는 뜻이다. 오지 않으면 cron이나 알림 설정부터 본다.
 
 ```bash
 cd ~/hamkke/hamkke-api/deploy
+./restore.sh --drill latest                                              # BACKUP_DIR 의 가장 최근 백업
 ./restore.sh --drill ~/backup/hamkke-20261114T040000Z.sql.gz
 ./restore.sh --drill s3://hamkke-backup/mysql/hamkke-20261114T040000Z.sql.gz.gpg   # S3에서 받아서
 ```
 
-`.sha256`을 확인하고, 임시 DB `hamkke_restore_drill`에 넣은 뒤 표마다 행 수와 Flyway 마지막 버전만 보이고 임시 DB를 지운다(내용은 화면에 내보내지 않는다). 걸린 시간과 결과를 운영 기록에 적는다.
+`.sha256`을 확인하고, 임시 DB `hamkke_restore_drill`에 넣은 뒤 표마다 행 수와 Flyway 마지막 버전만 보이고 임시 DB를 지운다(내용은 화면에 내보내지 않는다). 알림에는 파일 이름·표 수·Flyway 버전·걸린 시간만 담긴다. S3 사본은 자동 연습에 들어가지 않으니 분기에 한 번은 S3 주소로 직접 연습한다. `latest`는 연습에서만 쓸 수 있다(실제 복원은 파일을 직접 고른다).
 
 ### 5.2 실제 복원
 
@@ -184,6 +195,22 @@ cd ~/hamkke/hamkke-api/deploy
 ```
 
 운영 DB 이름을 직접 입력해야 진행된다. api를 멈추고 복원한 뒤 다시 켠다. 백업 시점 이후의 기록은 사라지므로, 먼저 지금 상태를 `./backup.sh`로 한 번 더 백업해 둔다.
+
+### 5.3 알림 (`deploy/notify.sh`)
+
+백업·복원 연습·인증서 스크립트는 실패하거나 사람이 봐야 할 일이 생기면 `notify.sh`를 부른다. 알림은 늘 syslog(`journalctl -t hamkke`)에 남고, `.env`의 `ALERT_WEBHOOK_URL`이 있으면 그 주소로도 간다. 본문이 `{"text": …, "content": …}`라 Slack·Discord의 들어오는 웹훅을 그대로 쓸 수 있다.
+
+| 언제 | 보내는 스크립트 |
+|---|---|
+| 백업이 멈췄거나 S3에 올리지 못했을 때(이 서버의 백업은 남았는지 함께 적는다) | `backup.sh` |
+| 매달 복원 연습이 통과했을 때, 실패했을 때 | `restore.sh --drill` |
+| 인증서 갱신이 실패했거나 만료가 14일 안일 때 | `renew-cert.sh` |
+
+```bash
+./notify.sh "알림 시험"   # 설정한 채널에 메시지가 오는지 확인
+```
+
+알림에는 단계·파일 이름·호스트 이름만 담고, 아동 정보·비밀번호·토큰은 넣지 않는다. 웹훅 주소도 비밀이므로 `.env`에만 두고, 명령줄(ps)에 드러나지 않게 curl 설정 파일로 넘긴다.
 
 ## 6. 업데이트
 
@@ -197,7 +224,9 @@ DB 스키마 변경은 `src/main/resources/db/migration/V{n}__*.sql`(hamkke-api 
 ## 7. 출시 전 점검
 
 - [ ] `sudo ./renew-cert.sh --dry-run` 통과, root crontab에 갱신·만료 확인 두 줄
-- [ ] `./backup.sh` 한 번 실행 → `./restore.sh --drill`로 그 파일을 연습 복원(S3를 쓰면 S3 주소로도)
+- [ ] `.env`에 `ALERT_WEBHOOK_URL`을 채우고 `./notify.sh "알림 시험"`이 팀 채널에 오는지
+- [ ] aws CLI 설치 뒤 cron과 같은 PATH로 `./backup.sh` 한 번 실행(5장) → `./restore.sh --drill latest`로 연습 복원(S3를 쓰면 S3 주소로도)
+- [ ] ubuntu crontab에 백업·월 1회 복원 연습 두 줄
 
 - [ ] `https://도메인/api/v1/policies` 200 (`aiObservationEnabled`가 의도한 값인지)
 - [ ] AI 관찰 기록을 켰다면: `https://도메인/ai/v1/health`의 `modelReady: true`, 동의 → 장면 사진 → 관찰 기록 → 카드까지 한 번, 동의를 끄면 기록이 지워지는지, 네트워크 탭에서 사진이 `/ai/v1/analyze`로만 가고 `/api/`로는 글자만 가는지

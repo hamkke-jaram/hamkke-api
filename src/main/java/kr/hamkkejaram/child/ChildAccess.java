@@ -36,4 +36,13 @@ public class ChildAccess {
     public Child requireOwnerOrLinkedTeacher(AuthUser user, long childId) {
         return user.isParent() ? requireOwner(user, childId) : requireLinkedTeacher(user, childId);
     }
+
+    /**
+     * 이 아이에 대한 쓰기를 줄 세운다(아이 행 잠금, 트랜잭션이 끝날 때 풀린다). 권한 확인은 하지 않으니
+     * 뒤에서 require… 를 따로 부른다. 잠근 뒤에 읽어야 다른 트랜잭션이 막 커밋한 값(철회된 동의 등)을 보므로,
+     * 트랜잭션의 맨 처음에 부른다.
+     */
+    public void lockChild(long childId) {
+        children.lockById(childId);
+    }
 }

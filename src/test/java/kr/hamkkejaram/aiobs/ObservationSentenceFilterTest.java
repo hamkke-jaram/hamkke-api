@@ -58,6 +58,68 @@ class ObservationSentenceFilterTest {
         assertThat(ObservationSentenceFilter.isAllowed("아이가 산만해 보여요.")).isFalse();
     }
 
+    /*
+     * 아래 세 테스트는 hamkke-ai server/test/wording.test.ts 와 같은 문장을 쓴다(AIO-09: 두 번째 검사도 같은 폭).
+     */
+
+    @Test
+    void adviceInPoliteFormIsCaught() {
+        for (String s : List.of(
+                "아이가 울면 꼭 안아 주세요.",
+                "아이에게 먼저 말을 걸어 보세요.",
+                "어른이 아이를 달래 주면 좋겠어요.",
+                "그럴 때는 그러지 마세요",
+                "옆에서 기다려 주면 돼요.",
+                "먼저 안아 주는 게 좋아요.",
+                "어른의 도움이 필요해 보여요.",
+                "천천히 기다려 주십시오.")) {
+            assertThat(ObservationSentenceFilter.isAllowed(s)).as(s).isFalse();
+        }
+    }
+
+    @Test
+    void guessesAboutReasonsOrFeelingsAreCaught() {
+        for (String s : List.of(
+                "아이가 졸려서 우는 것 같아요.",
+                "블록이 무너졌기 때문이에요.",
+                "아이가 졸린가 봐요.",
+                "아이가 자나 봐요.",
+                "아이가 졸린 듯해요.",
+                "아마 배가 고파서 울어요.")) {
+            assertThat(ObservationSentenceFilter.isAllowed(s)).as(s).isFalse();
+        }
+    }
+
+    @Test
+    void agesAndLooksAreCaught() {
+        for (String s : List.of(
+                "5살쯤 된 아이가 앉아 있어요.",
+                "세 살 아이가 앉아 있어요.",
+                "열두 살 아이가 서 있어요.",
+                "아이는 3세예요.",
+                "18개월쯤 된 아이가 걸어요.",
+                "통통한 아이가 웃어요.")) {
+            assertThat(ObservationSentenceFilter.isAllowed(s)).as(s).isFalse();
+        }
+    }
+
+    @Test
+    void lookAlikeEverydayObservationsPass() {
+        for (String s : List.of(
+                "아이가 공을 통통 튀겨요.",
+                "아이가 블록 3세트를 쌓아요.",
+                "아이가 자세 살펴보듯 블록을 들여다봐요.",
+                "아이가 어른을 봐요.",
+                "어른이 아이가 쌓은 블록을 봐요.",
+                "아이가 블록을 좋아해요.",
+                "아이가 기분이 좋아 보여요.",
+                "아이가 어른과 같이 놀아요.",
+                "아이가 블록 2개를 세워요.",
+                "어른이 아이에게 다가가 봐요.")) {
+            assertThat(ObservationSentenceFilter.isAllowed(s)).as(s).isTrue();
+        }
+    }
+
     /** 필터의 금지 표현 목록은 scripts/check-expressions.mjs 의 FORBIDDEN 과 같아야 한다. */
     @Test
     void forbiddenListMatchesTheCheckerScript() throws IOException {
