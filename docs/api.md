@@ -187,7 +187,8 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
   "coaching": {
     "delivery": { "id": 90, "deliveredAt": "...", "triedAt": null,
                   "card": { "id": 3, "title": "...", "body": "...", "situation": "GROWING", "metricFocus": "JOINT_PLAY",
-                            "evidenceTag": "...", "sourceTitle": "...", "sourceUrl": "...", "author": "...", "reviewer": null } },
+                            "evidenceTag": "...", "sourceTitle": "...", "sourceUrl": "...", "author": "...", "reviewer": null,
+                            "code": "JP-G-01" } },
     "guidance": null
   }
 }
@@ -208,6 +209,8 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 |---|---|---|---|
 | GET | `/children/{id}/card-deliveries?limit=20&beforeId?` | P(own), T(linked, 카드 공유 켜짐) | 받은 카드 이력(전달 시각 최신순, `limit` 1~50, `beforeId`는 맨 위 "목록 커서"). 항목은 위 `coaching.delivery`와 같은 모양. AI 관찰 기록(가정)으로 받은 카드도 여기에 함께 나온다 |
 | POST | `/children/{id}/card-deliveries/{deliveryId}/tried` | P(own) | "해봤어요" 표시 → 갱신된 전달 항목(이미 표시했으면 처음 시각 유지) |
+
+카드(`card`)의 `code`는 카드마다 하나뿐인 이름이다(예: `RS-A-01`, `HM-A-03`). 화면이 카드에 맞는 그림을 고를 때 쓰며, 카드가 담기는 모든 응답(기록 저장, AI 관찰 기록 저장, 카드 이력, "해봤어요")에 항상 들어 있다.
 
 ## 6. 공유 설정·초대
 
@@ -342,7 +345,8 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
   "coaching": {
     "delivery": { "id": 91, "deliveredAt": "...", "triedAt": null,
                   "card": { "id": 17, "title": "...", "body": "...", "situation": "ANY", "metricFocus": "HARD_MOMENT",
-                            "evidenceTag": "...", "sourceTitle": "...", "sourceUrl": "...", "author": "...", "reviewer": null } },
+                            "evidenceTag": "...", "sourceTitle": "...", "sourceUrl": "...", "author": "...", "reviewer": null,
+                            "code": "HM-A-01" } },
     "guidance": null
   }
 }
