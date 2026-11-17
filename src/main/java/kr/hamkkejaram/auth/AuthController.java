@@ -28,19 +28,19 @@ public class AuthController {
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public TokenResponse signup(@Valid @RequestBody SignupRequest req, HttpServletRequest http) {
-        rateLimiter.checkAuthRequest(http.getRemoteAddr());
+        rateLimiter.checkLoginOrSignup(http.getRemoteAddr());
         return authService.signup(req);
     }
 
     @PostMapping("/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest req, HttpServletRequest http) {
-        rateLimiter.checkAuthRequest(http.getRemoteAddr());
+        rateLimiter.checkLoginOrSignup(http.getRemoteAddr());
         return authService.login(req);
     }
 
     @PostMapping("/refresh")
     public TokenResponse refresh(@Valid @RequestBody RefreshRequest req, HttpServletRequest http) {
-        rateLimiter.checkAuthRequest(http.getRemoteAddr());
+        rateLimiter.checkTokenRefresh(http.getRemoteAddr());
         return authService.refresh(req.refreshToken());
     }
 

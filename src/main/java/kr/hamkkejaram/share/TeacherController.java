@@ -36,7 +36,7 @@ public class TeacherController {
     @ResponseStatus(HttpStatus.CREATED)
     public TeacherChildResponse link(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody LinkRequest req,
                                      HttpServletRequest http) {
-        rateLimiter.checkAuthRequest(http.getRemoteAddr()); // 코드 대입 시도 제한
+        rateLimiter.checkInviteCodeAttempt(http.getRemoteAddr()); // 코드 대입 시도 제한
         return service.link(user, req.code());
     }
 

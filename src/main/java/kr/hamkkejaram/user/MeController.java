@@ -109,7 +109,7 @@ public class MeController {
     @PutMapping("/password")
     public TokenResponse changePassword(@AuthenticationPrincipal AuthUser user,
                                         @Valid @RequestBody ChangePasswordRequest req, HttpServletRequest http) {
-        rateLimiter.checkAuthRequest(http.getRemoteAddr());
+        rateLimiter.checkPasswordCheck(http.getRemoteAddr());
         return authService.changePassword(user.id(), req);
     }
 
@@ -148,9 +148,9 @@ public class MeController {
     @Transactional
     public void delete(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody DeleteAccountRequest req,
                        HttpServletRequest http) {
-        // 비밀번호를 확인하는 곳이라 로그인·비밀번호 변경과 같은 제한을 건다(ACC-06): IP당 요청 수,
+        // 비밀번호를 확인하는 곳이라 비밀번호 변경과 같은 제한을 건다(ACC-06): IP당 요청 수(비밀번호 변경과 한 통),
         // 그리고 틀린 횟수는 로그인 실패로 세어 5번이면 15분 잠근다. 아니면 액세스 토큰만 있으면 비밀번호를 끝없이 맞춰 볼 수 있다.
-        rateLimiter.checkAuthRequest(http.getRemoteAddr());
+        rateLimiter.checkPasswordCheck(http.getRemoteAddr());
         User u = currentUser(user);
         rateLimiter.checkLoginAllowed(u.getEmail());
         if (!passwordEncoder.matches(req.password(), u.getPasswordHash())) {

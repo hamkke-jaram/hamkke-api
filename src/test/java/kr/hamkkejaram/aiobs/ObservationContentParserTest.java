@@ -129,6 +129,63 @@ class ObservationContentParserTest {
         assertThat(c.isEmpty()).isTrue();
     }
 
+    // ---------- 글자 맞추기: 검사한 글과 저장하는 글이 같다 ----------
+
+    /** 폭 없는 공백, BOM, 한글 채움 문자, 오른쪽에서 왼쪽으로 덮어쓰기. 소스에 글자 자체를 적지 않으려고 코드 포인트로 둔다. */
+    private static final int[] INVISIBLE = {0x200B, 0xFEFF, 0x3164, 0x202E};
+
+    @Test
+    void storedTextIsTheNormalisedText() {
+        String fullWidthThree = Character.toString('3' + 0xFEE0);
+        for (int invisible : INVISIBLE) {
+            String hidden = Character.toString(invisible);
+            Map<String, Object> o = valid();
+            o.put("summary", "아이가 블록 " + fullWidthThree + "개를 쌓" + hidden + "아요.");
+            o.put("moments", List.of(moment(1, hidden + "어른이 웃" + hidden + "어요.")));
+            ObservationContent c = ObservationContentParser.parse(o);
+            // 전각 숫자는 반각이 되고 보이지 않는 글자는 지워진 글이 저장된다(AI 서버가 영수증에 넣는 글과 같은 모양)
+            assertThat(c.summary()).as("U+%04X", invisible).isEqualTo("아이가 블록 3개를 쌓아요.");
+            assertThat(c.moments()).extracting(ObservationContent.Moment::note).containsExactly("어른이 웃어요.");
+        }
+    }
+
+    @Test
+    void invisibleCharactersCannotHideAForbiddenExpression() {
+        for (String word : ObservationSentenceFilter.forbiddenExamples()) {
+            for (int invisible : INVISIBLE) {
+                String hidden = String.join(Character.toString(invisible),
+                        word.codePoints().mapToObj(Character::toString).toList());
+                Map<String, Object> o = valid();
+                o.put("summary", "아이가 블록을 쌓아요. " + hidden + " 이에요.");
+                o.put("moments", List.of(moment(1, "아이가 블록을 쌓아요."), moment(2, hidden + " 이에요.")));
+                ObservationContent c = ObservationContentParser.parse(o);
+                assertThat(c.summary()).as("%s 사이에 U+%04X", word, invisible).isNull();
+                assertThat(c.moments()).extracting(ObservationContent.Moment::t).containsExactly(1.0);
+            }
+        }
+    }
+
+    @Test
+    void textMadeOnlyOfInvisibleCharactersIsTreatedAsEmpty() {
+        StringBuilder sb = new StringBuilder();
+        for (int invisible : INVISIBLE) sb.appendCodePoint(invisible);
+        ObservationContent c = ObservationContentParser.parse(obs(sb.toString(), List.of("CALM"), List.of(),
+                List.of(moment(1, sb.toString())), 1));
+        assertThat(c.summary()).isNull();
+        assertThat(c.moments()).isEmpty();
+    }
+
+    @Test
+    void lengthIsMeasuredAfterNormalising() {
+        // 보이지 않는 글자는 길이에 들지 않는다
+        String padded = "가".repeat(300) + Character.toString(0x200B).repeat(50);
+        assertThat(ObservationContentParser.parse(obs(padded, List.of("CALM"), List.of(), List.of(), 1)).summary())
+                .hasSize(300);
+        // 말줄임표 한 글자는 맞추면 마침표 세 개가 된다: 맞춘 글이 300자를 넘으면 받지 않는다
+        String grows = "가".repeat(299) + Character.toString(0x2026);
+        assertRejected(obs(grows, List.of("CALM"), List.of(), List.of(), 1), "summary_too_long");
+    }
+
     // ---------- 약속과 다른 모양: 영수증 전체를 받지 않는다 ----------
 
     @Test

@@ -105,7 +105,7 @@ root의 crontab에 넣는다(`sudo crontab -e`). 하루 두 번 시도하고, �
 ```bash
 docker compose up -d --build
 docker compose ps                     # api가 healthy인지 확인 (AI를 켰으면 ai도)
-docker compose logs -f api            # Flyway가 V1~V5를 적용했는지 확인
+docker compose logs -f api            # Flyway가 V1~V6을 적용했는지 확인
 ```
 
 AI 관찰 기록을 켰다면 `curl -s https://도메인/ai/v1/health` 가 `{"status":"ok","model":"...","modelReady":true}` 인지 본다. `modelReady`가 `false`면 `OLLAMA_URL`과 모델 내려받기(`ollama pull`)를 확인한다. `docker compose logs ai`에 `warmup_done`이 보이면 모델이 메모리에 올라간 것이다.
@@ -219,7 +219,7 @@ git -C .. pull && git -C ../../hamkke-web pull && docker compose up -d --build
 # AI 관찰 기록을 켠 서버라면 hamkke-ai도 함께: git -C ../../hamkke-ai pull
 ```
 
-DB 스키마 변경은 `src/main/resources/db/migration/V{n}__*.sql`(hamkke-api 저장소 기준)을 새로 추가한다. 이미 적용된 파일(V1~V5)은 Flyway 체크섬이 깨지므로 고치지 않는다. V5(AI 관찰 기록 테이블, 공유 설정 두 항목, '힘든 순간 함께하기' 카드 6장)는 AI 기능을 켜지 않아도 적용된다.
+DB 스키마 변경은 `src/main/resources/db/migration/V{n}__*.sql`(hamkke-api 저장소 기준)을 새로 추가한다. 이미 적용된 파일(V1~V6)은 Flyway 체크섬이 깨지므로 고치지 않는다. V5(AI 관찰 기록 테이블, 공유 설정 두 항목, '힘든 순간 함께하기' 카드 6장)와 V6(쓴 영수증 표 `ai_used_receipts`: `jti`와 만료 시각만)은 AI 기능을 켜지 않아도 적용된다.
 
 ## 7. 출시 전 점검
 

@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import kr.hamkkejaram.common.AppProperties;
 import kr.hamkkejaram.common.ErrorCode;
 import kr.hamkkejaram.common.ErrorResponse;
+import kr.hamkkejaram.common.RequestIdFilter;
 import kr.hamkkejaram.user.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -78,6 +79,8 @@ public class SecurityConfig {
             config.setAllowedOrigins(origins);
             config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
             config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+            // 다른 출처(개발 서버)의 화면도 요청 ID를 읽을 수 있게 한다. 운영은 같은 출처라 이 설정과 무관하다.
+            config.setExposedHeaders(List.of(RequestIdFilter.HEADER));
             config.setMaxAge(3600L);
             source.registerCorsConfiguration("/api/**", config);
         }

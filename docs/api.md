@@ -7,6 +7,7 @@
 - 이 서버는 파일·이미지를 받지 않는다(multipart·미디어·이미지 본문 415). AI 관찰 기록의 장면 사진은 웹이 AI 서버(`/ai/v1/analyze`, [ai-observation.md 5장](ai-observation.md))로 직접 보내고, 이 서버에는 글자(영수증)만 온다.
 - 목록 조회의 `limit`·`weeks`는 범위를 벗어나면 가장 가까운 허용값으로 맞춘다(에러 아님).
 - **목록 커서(더 보기)**: 기록·카드 이력·관찰 메모·AI 관찰 기록 목록(아래 표에 `beforeId?`로 표시)은 `limit`과 `beforeId`를 받는다. `beforeId`를 주면 **그 id의 항목보다 오래된 항목만** 같은 정렬(최신순, 같은 시각은 id 큰 순)로 준다. 다음 쪽은 받은 목록의 마지막 `id`를 `beforeId`로 보내고, 받은 개수가 `limit`보다 적으면 끝이다. 응답 모양(배열)은 그대로이고, 매개변수를 주지 않으면 예전과 같다. `beforeId`가 그 목록에 없는 항목(지워졌거나 다른 아이의 항목, 볼 수 없는 항목)이면 400 `VALIDATION_FAILED` → 처음 쪽부터 다시 불러온다. 권한 검사가 먼저라 남의 아이 목록은 커서와 상관없이 404다. 화면의 '더 보기'는 `limit` 50 이하를 쓴다(기록·메모 목록은 예전처럼 100까지 받는다).
+- **요청 ID**: 모든 응답(성공·에러)에 응답 헤더 `X-Request-Id`(난수 16진수 16자, 예 `9f2c41d07ab35e68`)가 실린다. 서버 로그의 그 요청 줄에 같은 값이 찍히므로, 오류 화면이나 문의에 이 값을 함께 보여 주면 로그를 찾을 수 있다. 사용자·아이를 알아볼 수 있는 값은 들어 있지 않고, 요청에 `X-Request-Id`를 보내도 서버는 쓰지 않는다. 응답 본문(에러 형식 포함)은 그대로다.
 - 실행 중인 서버에서 `/swagger-ui.html`로 같은 내용을 볼 수 있다(운영에서는 비활성).
 
 ## 1. 공개
@@ -41,7 +42,7 @@
 | GET | `/me` | P, T | 내 정보 `{ id, email, displayName, role, pendingConsents }` — `pendingConsents`는 아래 '재동의' 참고 |
 | PATCH | `/me` | P, T | 표시명 수정 `{ displayName }`(앞뒤 공백을 지운 뒤 1~30자, 공백만은 안 됨) → 200 `GET /me`와 같은 본문 (ACC-08) |
 | PUT | `/me/password` | P, T | 비밀번호 변경 `{ currentPassword, newPassword }` → 200 토큰 묶음(아래) (ACC-09) |
-| DELETE | `/me` | P, T | 탈퇴(즉시 삭제). 본문 `{ "password": "..." }` → 204. 비밀번호가 다르면 401 `INVALID_CREDENTIALS`. 로그인과 같은 제한: IP당 요청이 많거나, 이 계정의 비밀번호를 거듭 틀려 잠겼으면 429 `TOO_MANY_ATTEMPTS`(틀린 횟수는 로그인 실패와 함께 센다) |
+| DELETE | `/me` | P, T | 탈퇴(즉시 삭제). 본문 `{ "password": "..." }` → 204. 비밀번호가 다르면 401 `INVALID_CREDENTIALS`. IP당 요청이 많거나(비밀번호 확인 한도, 아래 'IP 기준 요청 제한'), 이 계정의 비밀번호를 거듭 틀려 잠겼으면 429 `TOO_MANY_ATTEMPTS`(틀린 횟수는 로그인 실패와 함께 센다) |
 | GET | `/me/consents` | P, T | 내 동의 이력 `[ { type, version, childId, agreedAt, revokedAt } ]` (최신순) |
 | POST | `/me/consents` | P, T | 바뀐 문서에 다시 동의 `{ type, version }` → 204 (ACC-10) |
 | GET | `/me/export` | P, T | 내 데이터 내려받기 → 200 JSON 파일(아래) (ACC-11) |
@@ -61,7 +62,23 @@
 
 ### 로그인 제한 (ACC-05)
 
-같은 이메일로 15분 안에 5번 틀리면, **5번째로 틀린 시각부터 15분 동안** 로그인(과 비밀번호 변경)이 429 `TOO_MANY_ATTEMPTS`다. 잠금이 풀리면 처음부터 다시 센다. 로그인에 성공하면 그때까지의 실패는 지운다. 인증 API(`/auth/*`, `PUT /me/password`)에는 IP 기준 분당 요청 제한도 있다.
+같은 이메일로 15분 안에 5번 틀리면, **5번째로 틀린 시각부터 15분 동안** 로그인(과 비밀번호 변경)이 429 `TOO_MANY_ATTEMPTS`다. 잠금이 풀리면 처음부터 다시 센다. 로그인에 성공하면 그때까지의 실패는 지운다. 이 잠금은 이메일 기준이고, 아래의 IP 기준 제한과는 따로 센다.
+
+### IP 기준 요청 제한
+
+같은 IP에서 1분 동안 보낼 수 있는 요청 수를 **용도별로 따로** 센다. 넘으면 429 `TOO_MANY_ATTEMPTS`이고, 1분 안의 요청이 창 밖으로 나가면 다시 된다(거절된 요청은 세지 않는다). 한 용도의 한도를 다 써도 같은 IP의 다른 용도는 막히지 않는다.
+
+| 용도 | 경로 | IP당 분당 |
+|---|---|---|
+| 가입·로그인 | `POST /auth/signup`, `POST /auth/login` (둘을 합쳐 센다) | 30 |
+| 토큰 갱신 | `POST /auth/refresh` | 120 |
+| 비밀번호 확인 | `PUT /me/password`, `DELETE /me` (둘을 합쳐 센다) | 30 |
+| 초대 코드 입력 | `POST /teacher/links` | 20 |
+
+- `POST /auth/logout`에는 IP 제한이 없다.
+- 형식이 틀려 400 `VALIDATION_FAILED`로 끝난 요청과, 로그인이 필요한 경로에 유효한 토큰 없이 온 요청(401 `UNAUTHORIZED`)은 세지 않는다. 그 밖에는 성공·실패와 상관없이 센다.
+- 값은 운영 기준이다(`app.rate-limit.*`). 로컬 개발 서버(local 프로필)는 용도마다 200이다.
+- AI 분석 토큰 발급(사용자당 시간당 20회)과 내 데이터 내려받기(사용자당 시간당 3회)는 IP가 아니라 사용자 기준이다.
 
 ### 비밀번호 변경
 
@@ -73,7 +90,7 @@
 
 - 새 비밀번호 규칙은 가입과 같다(8~64자, 영문+숫자). 지금 비밀번호와 같으면 400 `VALIDATION_FAILED`.
 - 가입·변경 모두, 64자 안이어도 UTF-8로 72바이트를 넘으면(한글이 많을 때, BCrypt 상한) 400 `VALIDATION_FAILED`.
-- 지금 비밀번호가 틀리면 401 `INVALID_CREDENTIALS`(로그인 실패로 함께 세어 5번이면 15분 잠금, 429). IP 기준 요청 제한도 적용된다.
+- 지금 비밀번호가 틀리면 401 `INVALID_CREDENTIALS`(로그인 실패로 함께 세어 5번이면 15분 잠금, 429). IP 기준 요청 제한(비밀번호 확인 한도)도 적용된다.
 - 바꾸면 이 사용자의 **다른 리프레시 토큰은 모두 폐기**된다(DB에서 지운다. 다른 기기가 예전 토큰으로 `/auth/refresh`를 보내면 401 `INVALID_REFRESH_TOKEN`만 나고, 재사용 탐지로 새 토큰까지 폐기되지는 않는다). 다른 기기의 액세스 토큰은 만료(최대 30분)까지만 쓰이고 그 뒤에는 다시 로그인해야 한다. 응답으로 받은 새 토큰으로 바꿔 끼운다.
 
 ### 재동의 (ACC-10)
@@ -210,7 +227,7 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 
 | 메서드 | 경로 | 권한 | 설명 |
 |---|---|---|---|
-| POST | `/teacher/links` | T | `{ code }` → 201 연결된 아동 `{ id, nickname, ageMonths, linkedAt }`. 공백·`-`·대소문자는 무시. 만료·사용됨·없는 코드는 모두 422 `INVITE_CODE_INVALID`, IP 기준 요청 제한 |
+| POST | `/teacher/links` | T | `{ code }` → 201 연결된 아동 `{ id, nickname, ageMonths, linkedAt }`. 공백·`-`·대소문자는 무시. 만료·사용됨·없는 코드는 모두 422 `INVITE_CODE_INVALID`, IP 기준 요청 제한(초대 코드 입력 한도, 2장 'IP 기준 요청 제한') |
 | GET | `/teacher/children` | T | 연결된 아동 목록 `[ { id, nickname, ageMonths, linkedAt } ]` |
 | DELETE | `/teacher/links/{childId}` | T(linked) | 선생님이 스스로 연결 끊기 → 204. 이후 그 아이의 모든 경로는 404. 이미 쓴 목표·관찰 메모는 남는다(TCH-07). 연결되지 않은 아이면 404, 부모 계정이면 403 `FORBIDDEN_ROLE` |
 | GET | `/teacher/children/{id}/shared-summary?weeks=8` | T(linked) | 공유된 항목만 담긴 주간 요약(`weeks` 1~26) |
@@ -307,7 +324,7 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 3. `obs`([ai-observation.md 6장](ai-observation.md#6-관찰-기록-객체-obs)): 태그는 목록의 값만 0~3개, `summary` 300자 이하, `moments` 0~4개(`note` 120자 이하, `t` 0~86400초), `peopleCount` 0~3. `mv`(100자 이하)·`pv`(40자 이하)·`fc`(1~6)
 4. 문장 검사를 한 번 더 한다: 걸린 `summary`는 `null`로, 걸린 `moment`는 빼고 저장한다(이 경우는 거절이 아니다). 그 뒤 남길 것이 하나도 없으면 거절한다
 
-그 밖의 응답: 같은 `jti`를 다시 쓰면 409 `DUPLICATE_REQUEST`. 저장 시점에 분석 토큰 발급 조건(동의·기관 촬영 허용)을 다시 확인하므로, 그 사이 동의가 철회됐으면 P는 422 `AI_CONSENT_REQUIRED`, T는 404. AI 기능이 꺼져 있으면 503 `AI_UNAVAILABLE`.
+그 밖의 응답: 같은 `jti`를 다시 쓰면 409 `DUPLICATE_REQUEST`(그 기록을 지운 뒤에 다시 보내도 같다). 저장 시점에 분석 토큰 발급 조건(동의·기관 촬영 허용)을 다시 확인하므로, 그 사이 동의가 철회됐으면 P는 422 `AI_CONSENT_REQUIRED`, T는 404. AI 기능이 꺼져 있으면 503 `AI_UNAVAILABLE`.
 
 ```json
 // POST /children/7/ai-observations → 201 (가정 기록)

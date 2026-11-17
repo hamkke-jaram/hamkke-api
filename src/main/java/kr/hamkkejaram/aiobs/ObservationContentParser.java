@@ -91,15 +91,26 @@ public final class ObservationContentParser {
         return (int) d;
     }
 
-    /** 제어 문자(줄바꿈·탭 포함)는 공백으로 바꾸고 앞뒤 공백을 지운다. 짝이 맞지 않는 대리 문자는 받지 않는다(DB 저장 불가). */
+    /**
+     * 저장할 글을 다듬는다. 짝이 맞지 않는 대리 문자는 받지 않는다(DB 저장 불가).
+     * <ol>
+     *   <li>글자를 고르게 맞춘다({@link ObservationSentenceFilter#normalise}: NFKC → 보이지 않는 글자 지우기).
+     *       문장 검사가 보는 글과 저장하는 글이 같아야 하기 때문이다: 보이지 않는 글자(방향 표시 등)를 남겨 두면
+     *       검사한 글과 화면에 보이는 글이 달라질 수 있다. AI 서버는 이미 이렇게 맞춘 글을 영수증에 넣으므로
+     *       정상 경로에서는 바뀌는 것이 없다.</li>
+     *   <li>제어 문자(줄바꿈·탭 포함)는 공백으로 바꾸고 앞뒤 공백을 지운다.</li>
+     * </ol>
+     * 길이 제한은 이렇게 다듬은 글로 잰다.
+     */
     private static String clean(String raw) {
-        StringBuilder sb = new StringBuilder(raw.length());
         raw.codePoints().forEach(cp -> {
             if (cp >= Character.MIN_SURROGATE && cp <= Character.MAX_SURROGATE) {
                 throw new InvalidReceiptException("text_malformed");
             }
-            sb.appendCodePoint(Character.isISOControl(cp) ? ' ' : cp);
         });
+        String text = ObservationSentenceFilter.normalise(raw);
+        StringBuilder sb = new StringBuilder(text.length());
+        text.codePoints().forEach(cp -> sb.appendCodePoint(Character.isISOControl(cp) ? ' ' : cp));
         return sb.toString().strip();
     }
 

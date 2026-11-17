@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  *
  * <p>여기서 확인하는 것: 서명, 알고리즘(HS256), 발급자({@code hamkke-ai}), 대상({@code hamkke-api}), 만료,
  * 클레임 모양, {@code obs}(6장). 경로의 아이·요청한 사용자와 맞는지, {@code jti}가 처음인지는
- * {@link AiObservationService}가 확인한다.
+ * {@link AiObservationService}가 확인한다(쓴 {@code jti}는 {@link UsedReceipts}가 만료 시각까지 기억한다).
  *
  * <p>분석 토큰(발급자 {@code hamkke-api}, 대상 {@code hamkke-ai})은 같은 비밀로 서명되지만 발급자·대상이 달라
  * 영수증으로 쓸 수 없다.
@@ -46,9 +46,14 @@ public class AiReceiptVerifier {
         this.clock = clock;
     }
 
-    /** 검증을 통과한 영수증의 내용. */
+    /**
+     * 검증을 통과한 영수증의 내용.
+     *
+     * @param expiresAt 영수증의 {@code exp}. 쓴 영수증을 이 시각(+시계 차이 허용)까지 기억하는 데 쓴다({@link UsedReceipts}).
+     */
     public record Verified(long userId, long childId, ObservationSource source, String jti,
-                           ObservationContent content, String modelVersion, String promptVersion, int frameCount) {}
+                           ObservationContent content, String modelVersion, String promptVersion, int frameCount,
+                           Instant expiresAt) {}
 
     /**
      * @throws InvalidReceiptException 영수증을 받아들일 수 없을 때(사유 코드만 담는다)
@@ -107,7 +112,7 @@ public class AiReceiptVerifier {
         int frameCount = ObservationContentParser.intInRange(c.get("fc"), 1, settings.maxFrames(), "fc");
 
         return new Verified(userId, childId, source, jti.toLowerCase(Locale.ROOT), content, modelVersion,
-                promptVersion, frameCount);
+                promptVersion, frameCount, exp.toInstant());
     }
 
     private static long positiveLong(Object value, String field) {

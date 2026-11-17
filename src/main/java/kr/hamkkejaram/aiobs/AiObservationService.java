@@ -51,6 +51,7 @@ public class AiObservationService {
     private final AiSessionTokens sessionTokens;
     private final AiReceiptVerifier receipts;
     private final AiObservationRepository observations;
+    private final UsedReceipts usedReceipts;
     private final CoachingService coaching;
     private final UserRepository users;
     private final RateLimiter rateLimiter;
@@ -58,8 +59,9 @@ public class AiObservationService {
 
     public AiObservationService(ChildAccess access, AiConsentService consent, ShareSettingRepository shareSettings,
                                 AiSettings settings, AiSessionTokens sessionTokens, AiReceiptVerifier receipts,
-                                AiObservationRepository observations, CoachingService coaching,
-                                UserRepository users, RateLimiter rateLimiter, Clock clock) {
+                                AiObservationRepository observations, UsedReceipts usedReceipts,
+                                CoachingService coaching, UserRepository users, RateLimiter rateLimiter,
+                                Clock clock) {
         this.access = access;
         this.consent = consent;
         this.shareSettings = shareSettings;
@@ -67,6 +69,7 @@ public class AiObservationService {
         this.sessionTokens = sessionTokens;
         this.receipts = receipts;
         this.observations = observations;
+        this.usedReceipts = usedReceipts;
         this.coaching = coaching;
         this.users = users;
         this.rateLimiter = rateLimiter;
@@ -114,10 +117,17 @@ public class AiObservationService {
         if (recordedAt.isAfter(now.plus(CLOCK_SKEW))) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "기록 시각이 미래일 수 없어요.");
         }
-        if (observations.existsBySessionJti(receipt.jti())) {
+        // 영수증 하나는 한 번만 저장한다(AIO-07). 그 영수증으로 만든 기록을 지운 뒤에도 마찬가지다:
+        // 쓴 jti 는 기록과 따로 남아 있어서(UsedReceipts), 지운 기록을 같은 영수증으로 되살릴 수 없다.
+        // 두 번째 확인은 V6 이전에 저장된 기록(쓴 영수증 표에 없는 jti)을 위한 것이다.
+        if (usedReceipts.isUsed(receipt.jti()) || observations.existsBySessionJti(receipt.jti())) {
+            log.warn("ai receipt rejected: childId={} reason=already_used", childId);
             throw new ApiException(ErrorCode.DUPLICATE_REQUEST);
         }
-        // 동시에 들어온 같은 영수증은 DB의 UNIQUE(session_jti)가 막는다 → 409 DUPLICATE_REQUEST
+        // 기록과 같은 트랜잭션에 남긴다: 아래 저장이 되돌려지면 이 표시도 함께 되돌려진다.
+        // 동시에 들어온 같은 영수증은 아이 행 잠금이 줄 세우고, 그래도 겹치면 DB의 기본 키·UNIQUE(session_jti)가 막는다
+        // → 409 DUPLICATE_REQUEST
+        usedReceipts.markUsed(receipt.jti(), receipt.expiresAt());
         AiObservation saved = observations.saveAndFlush(new AiObservation(childId, user.id(), source, recordedAt,
                 receipt.content(), receipt.modelVersion(), receipt.promptVersion(), receipt.frameCount(),
                 receipt.jti(), now));
@@ -173,7 +183,9 @@ public class AiObservationService {
         if (user.isTeacher() && !Objects.equals(o.getCreatedBy(), user.id())) {
             throw ApiException.notFound();
         }
-        observations.delete(o); // 이 기록으로 전달된 카드 이력은 DB의 ON DELETE CASCADE로 함께 지워진다
+        // 이 기록으로 전달된 카드 이력은 DB의 ON DELETE CASCADE로 함께 지워진다.
+        // 쓴 영수증 표시(UsedReceipts)는 지우지 않는다: 지운 기록을 같은 영수증으로 다시 저장할 수 없어야 한다(AIO-07).
+        observations.delete(o);
     }
 
     /**
