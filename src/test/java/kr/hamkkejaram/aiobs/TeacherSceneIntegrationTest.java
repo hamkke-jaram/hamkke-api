@@ -82,7 +82,7 @@ class TeacherSceneIntegrationTest {
                 "guardianConsent", Map.of("agreed", true, "version", V));
         long childId = json(mvc.perform(body(auth(post("/api/v1/children"), parent), child))
                 .andExpect(status().isCreated()).andReturn()).get("id").asLong();
-        mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent), Map.of("agreed", true, "version", V)))
+        mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent), TestReceipts.aiConsent()))
                 .andExpect(status().isOk());
         String code = json(mvc.perform(auth(post(path(childId, "/invite-codes")), parent))
                 .andExpect(status().isCreated()).andReturn()).get("code").asText();
