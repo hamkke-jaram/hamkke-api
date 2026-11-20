@@ -59,6 +59,11 @@ services:
       # 켜면 AI_SHARED_SECRET(32바이트 이상, JWT_SECRET과 다른 값)이 없을 때 api가 기동하지 않는다.
       AI_ENABLED: ${AI_ENABLED:-false}
       AI_SHARED_SECRET: ${AI_SHARED_SECRET:-}
+      # 지역 기관 목록(SUP-03·04). 비워 두면 아무것도 넣지 않는다. 채우면 기동할 때 한 번 그 CSV를 넣는다(docs/deploy.md 2.2).
+      APP_FACILITIES_IMPORT_FILE: ${FACILITIES_IMPORT_FILE:-}
+    volumes:
+      # 정규화한 기관 CSV를 두는 곳(읽기 전용). 공공데이터라 개인 정보가 없다.
+      - ./facilities:/app/facilities:ro
     expose:
       - "8080"
 

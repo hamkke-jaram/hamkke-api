@@ -60,6 +60,27 @@ openssl rand -base64 48   # → AI_SHARED_SECRET 에 붙여넣기 (JWT_SECRET �
 - 끄려면 `AI_ENABLED=false`, `COMPOSE_PROFILES=`로 되돌리고 `docker compose up -d`. 이미 저장된 AI 관찰 기록은 남아 있고 조회·삭제·동의 철회는 계속 된다.
 - 켜기 전에 [ai-observation.md 10장](ai-observation.md#10-아직-확인이-필요한-것-코드로-해결되지-않음)의 확인 항목(법률 검토 등)을 먼저 끝낸다.
 
+### 2.2 지역 기관 목록 넣기 (SUP-03·04)
+
+지역 기관 찾기(`GET /api/v1/support-facilities`)의 목록은 공공데이터로만 채운다. DB에 손으로 넣지 않는다.
+
+1. 공공데이터 원본 파일(CSV, UTF-8 또는 EUC-KR)을 받아 유형마다 정규화한 CSV로 바꾼다. 원본 한 파일이 한 유형이다.
+   ```bash
+   # 열을 확인한 파일(column-map.json의 sources): 유형·출처 이름은 표에 있다
+   node scripts/facilities/convert.mjs --source mental-health-centers --in 원본.csv \
+     --out deploy/facilities/mental-health-centers.csv --source-date 2026-09-21
+   # 아직 확인하지 않은 파일(generic 짐작 표): 유형·출처 이름을 직접 준다
+   node scripts/facilities/convert.mjs --in 원본.csv --out deploy/facilities/special-school.csv \
+     --category SPECIAL_SCHOOL --source-name "국립특수교육원 특수학교 현황" --source-date 2026-04-01
+   ```
+   `--source-date`는 공공데이터의 기준일이다(화면에 '공공데이터 기준일'로 보인다). 원본에 모르는 열, 모르는 설립 구분·운영 방식 값, 16개 시·도와 정해진 옛 이름(광주광역시·전라남도→전남광주통합특별시, 강원도, 전라북도, 제주도, 세종자치시) 말고 다른 시·도가 있으면 아무것도 쓰지 않고 멈춘다. 열·값이면 `scripts/facilities/column-map.json`을 고치고, 시·도면 `Sido.java`와 `convert.mjs`의 표를 함께 고친 뒤 다시 돌린다. 같은 유형·이름·주소가 두 번 나오면 앞의 것만 남긴다.
+2. 유형별 파일을 머리글 한 줄만 남기고 하나로 합친다(`deploy/facilities/facilities.csv`). 우리가 기관에 직접 확인한 기관은 맨 끝에 `status` 열을 더해 `CONFIRMED`로 적을 수 있다.
+3. `.env`에 `FACILITIES_IMPORT_FILE=/app/facilities/facilities.csv`를 적고 `docker compose up -d`. api가 뜰 때 한 번 넣는다.
+   - 같은 유형·이름·주소면 고치고, 없으면 더한다. 파일에 없는 기관은 지우지 않는다(문을 닫은 기관은 지금은 직접 정리해야 한다).
+   - 한 줄이라도 틀리면 아무것도 바꾸지 않고 `facility import rejected` ERROR 로그에 줄 번호·열 이름·이유를 남긴다. 서버는 그대로 뜬다.
+   - 잘 들어가면 `facility import done: inserted=… updated=… unchanged=…`. 같은 파일로 다시 띄우면 모두 `unchanged`다.
+   - 내용이 바뀐 기관은 `CONFIRMED`였어도 `PUBLIC_DATA`로 돌아간다(확인한 것은 예전 내용이므로).
+
 ## 3. TLS 인증서 (Let's Encrypt)
 
 카메라 촬영과 Web Crypto는 HTTPS에서만 동작한다.
@@ -105,7 +126,7 @@ root의 crontab에 넣는다(`sudo crontab -e`). 하루 두 번 시도하고, �
 ```bash
 docker compose up -d --build
 docker compose ps                     # api가 healthy인지 확인 (AI를 켰으면 ai도)
-docker compose logs -f api            # Flyway가 V1~V6을 적용했는지 확인
+docker compose logs -f api            # Flyway가 V1~V8을 적용했는지 확인
 ```
 
 AI 관찰 기록을 켰다면 `curl -s https://도메인/ai/v1/health` 가 `{"status":"ok","model":"...","modelReady":true}` 인지 본다. `modelReady`가 `false`면 `OLLAMA_URL`과 모델 내려받기(`ollama pull`)를 확인한다. `docker compose logs ai`에 `warmup_done`이 보이면 모델이 메모리에 올라간 것이다.
@@ -219,7 +240,7 @@ git -C .. pull && git -C ../../hamkke-web pull && docker compose up -d --build
 # AI 관찰 기록을 켠 서버라면 hamkke-ai도 함께: git -C ../../hamkke-ai pull
 ```
 
-DB 스키마 변경은 `src/main/resources/db/migration/V{n}__*.sql`(hamkke-api 저장소 기준)을 새로 추가한다. 이미 적용된 파일(V1~V6)은 Flyway 체크섬이 깨지므로 고치지 않는다. V5(AI 관찰 기록 테이블, 공유 설정 두 항목, '힘든 순간 함께하기' 카드 6장)와 V6(쓴 영수증 표 `ai_used_receipts`: `jti`와 만료 시각만)은 AI 기능을 켜지 않아도 적용된다.
+DB 스키마 변경은 `src/main/resources/db/migration/V{n}__*.sql`(hamkke-api 저장소 기준)을 새로 추가한다. 이미 적용된 파일(V1~V8)은 Flyway 체크섬이 깨지므로 고치지 않는다. V5(AI 관찰 기록 테이블, 공유 설정 두 항목, '힘든 순간 함께하기' 카드 6장)와 V6(쓴 영수증 표 `ai_used_receipts`: `jti`와 만료 시각만)은 AI 기능을 켜지 않아도 적용된다.
 
 ## 7. 출시 전 점검
 

@@ -1,0 +1,9 @@
+category,name,sido,sigungu,address,phone,homepage,operator,tags,source_name,source_date
+SPECIAL_SCHOOL,시험 특수학교 1,서울특별시,시험구,서울특별시 시험구 시험로 1,02-0000-0001,https://example.com/school-1,PUBLIC,유치원 과정;지적장애,시험 공공데이터,2026-04-01
+SPECIAL_SCHOOL,시험 특수학교 2,서울특별시,시험구,"서울특별시 시험구 시험로 2, 2층",02-0000-0002,,PRIVATE,자폐성장애,시험 공공데이터,2026-04-01
+SPECIAL_SCHOOL,가나 시험 특수학교,광주광역시,시험구,전남광주통합특별시 시험구 시험로 7,,,,,시험 공공데이터,2026-04-01
+SPECIAL_ED_SUPPORT_CENTER,시험 특수교육지원센터 1,서울특별시,다른시험구,서울특별시 다른시험구 시험길 3,02-0000-0003,https://example.com/center-3,PUBLIC,,시험 공공데이터,2026-03-01
+CHILDCARE_SUPPORT_CENTER,시험 육아종합지원센터 1,부산광역시,시험구,부산광역시 시험구 시험로 4,02-0000-0004,,PUBLIC,,시험 공공데이터,2026-03-01
+CHILDCARE_SUPPORT_CENTER,시험 100% 센터,경기도,시험시,경기도 시험시 시험로 8,,,,,시험 공공데이터,2026-03-01
+MENTAL_HEALTH_CENTER,시험 정신건강복지센터 1,강원도,시험군,강원특별자치도 시험군 시험로 5,02-0000-0005,,PUBLIC,,시험 공공데이터,2026-02-01
+DISABILITY_WELFARE_CENTER,시험 장애인복지관 1,서울특별시,시험구,서울특별시 시험구 시험로 6,02-0000-0006,https://example.com/welfare-6,NONPROFIT,발달재활;주간 활동,시험 공공데이터,2026-02-01

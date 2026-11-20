@@ -16,6 +16,7 @@
 |---|---|---|
 | GET 🔓 | `/policies` | 현재 동의 문서 버전, 주의 문구, AI 관찰 기록 사용 가능 여부 |
 | GET 🔓 | `/support-resources` | 상담·기관 연결 안내 목록(`sort_order` 순, 1시간 캐시) |
+| GET 🔓 | `/support-facilities?sido&category&q&page=0&size=20` | 지역 기관 찾기(SUP-03): 공공데이터로 만든 기관 목록, 이름순, 1시간 캐시. 아래 설명 참고 |
 
 ```json
 // GET /policies
@@ -30,6 +31,31 @@
   { "id": 8, "name": "긴급 상황 112 (경찰)", "description": "...", "phone": "112", "url": null,
     "hours": "24시간", "category": "EMERGENCY" } ]
 ```
+
+### 지역 기관 찾기 (SUP-03·04)
+
+```json
+// GET /support-facilities?sido=서울특별시&category=SPECIAL_SCHOOL&q=유치원&page=0&size=20
+{ "items": [ { "id": 12, "category": "SPECIAL_SCHOOL", "name": "...", "sido": "서울특별시", "sigungu": "...",
+               "address": "...", "phone": "02-000-0000", "homepage": "https://...", "operator": "PUBLIC",
+               "tags": ["유치원 과정", "지적장애"],
+               "source": { "name": "국립특수교육원 특수학교 현황", "date": "2026-04-01" },
+               "status": "PUBLIC_DATA" } ],
+  "total": 1, "page": 0, "size": 20,
+  "counts": { "SPECIAL_SCHOOL": 1, "SPECIAL_ED_SUPPORT_CENTER": 2, "CHILDCARE_SUPPORT_CENTER": 0,
+              "MENTAL_HEALTH_CENTER": 1, "DISABILITY_WELFARE_CENTER": 3 } }
+```
+
+- 매개변수는 모두 생략할 수 있다(생략하면 그 조건 없음).
+  - `sido`: 16개 시·도 공식 이름만 받는다 — `서울특별시`, `부산광역시`, `대구광역시`, `인천광역시`, `대전광역시`, `울산광역시`, `세종특별자치시`, `경기도`, `강원특별자치도`, `충청북도`, `충청남도`, `전북특별자치도`, `전남광주통합특별시`(2026-07-01 광주광역시·전라남도 통합), `경상북도`, `경상남도`, `제주특별자치도`. 줄인 이름(`서울`)이나 옛 이름(`광주광역시`, `강원도`)을 포함해 그 밖의 값은 400 `VALIDATION_FAILED`. 공공데이터에 옛 이름으로 적힌 기관은 가져올 때 공식 이름으로 바뀌어 저장된다.
+  - `category`: `SPECIAL_SCHOOL`(특수학교), `SPECIAL_ED_SUPPORT_CENTER`(특수교육지원센터), `CHILDCARE_SUPPORT_CENTER`(육아종합지원센터), `MENTAL_HEALTH_CENTER`(정신건강복지센터), `DISABILITY_WELFARE_CENTER`(장애인복지관). 그 밖의 값은 400.
+  - `q`: 앞뒤 공백을 지우고 0~40자(41자 이상은 400). 이름·주소·태그에 그 글자가 들어 있는 기관. `%`·`_`도 글자 그대로 찾는다.
+  - `page`(0부터)·`size`(1~50)는 범위를 벗어나면 가장 가까운 값으로 맞춘다(에러 아님). 응답의 `page`·`size`가 실제로 쓴 값이다. 숫자가 아니면 400.
+- 정렬은 이름순(같으면 `id` 순)뿐이다. 기관을 평가하거나 순위를 매기지 않는다.
+- `counts`: `sido`·`q` 조건은 걸고 `category` 조건은 빼고 센 유형별 수. 다섯 유형이 늘 같은 순서로, 없으면 0으로 들어 있다(화면의 유형 칩).
+- 비어 있는 값: `sigungu`·`phone`·`homepage`·`operator`는 `null`, `tags`는 `[]`. `homepage`는 늘 `http://` 또는 `https://`로 시작한다. `operator`: `PUBLIC`(국·공립), `PRIVATE`(사립), `NONPROFIT`(비영리 법인).
+- `source`: 이 정보를 가져온 공공데이터의 이름과 기준일. `status`: `PUBLIC_DATA`(공공데이터 그대로 — '공개 기관 정보'), `CONFIRMED`(함께자람이 기관에 확인한 정보 — '확인된 정보'). 목록에 있다는 것은 인증·제휴나 기록 공유를 뜻하지 않는다. 이 목록으로 아이 기록이 기관에 가지 않는다.
+- 아이·사용자 데이터를 읽지 않는다. 목록은 운영자가 공공데이터 CSV로만 넣는다([deploy.md 2.2](deploy.md#22-지역-기관-목록-넣기-sup-0304)).
 
 ## 2. 인증
 
