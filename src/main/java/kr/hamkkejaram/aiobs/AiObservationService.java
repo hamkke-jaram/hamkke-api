@@ -4,8 +4,6 @@ import kr.hamkkejaram.aiobs.AiObservationDtos.AiSessionResponse;
 import kr.hamkkejaram.aiobs.AiObservationDtos.ObservationResponse;
 import kr.hamkkejaram.aiobs.AiObservationDtos.SaveObservationRequest;
 import kr.hamkkejaram.aiobs.AiObservationDtos.SaveObservationResponse;
-import kr.hamkkejaram.card.CardDtos.Coaching;
-import kr.hamkkejaram.card.CoachingService;
 import kr.hamkkejaram.child.ChildAccess;
 import kr.hamkkejaram.common.ApiException;
 import kr.hamkkejaram.common.ErrorCode;
@@ -52,7 +50,6 @@ public class AiObservationService {
     private final AiReceiptVerifier receipts;
     private final AiObservationRepository observations;
     private final UsedReceipts usedReceipts;
-    private final CoachingService coaching;
     private final UserRepository users;
     private final RateLimiter rateLimiter;
     private final Clock clock;
@@ -60,7 +57,7 @@ public class AiObservationService {
     public AiObservationService(ChildAccess access, AiConsentService consent, ShareSettingRepository shareSettings,
                                 AiSettings settings, AiSessionTokens sessionTokens, AiReceiptVerifier receipts,
                                 AiObservationRepository observations, UsedReceipts usedReceipts,
-                                CoachingService coaching, UserRepository users, RateLimiter rateLimiter,
+                                UserRepository users, RateLimiter rateLimiter,
                                 Clock clock) {
         this.access = access;
         this.consent = consent;
@@ -70,7 +67,6 @@ public class AiObservationService {
         this.receipts = receipts;
         this.observations = observations;
         this.usedReceipts = usedReceipts;
-        this.coaching = coaching;
         this.users = users;
         this.rateLimiter = rateLimiter;
         this.clock = clock;
@@ -86,7 +82,7 @@ public class AiObservationService {
         return new AiSessionResponse(issued.token(), issued.expiresAt(), settings.maxFrames());
     }
 
-    /** 영수증을 검증해 관찰 기록을 저장한다. 가정 기록이면 카드 1장을 골라 전달한다. */
+    /** 영수증을 검증해 관찰 기록을 저장한다. 가정 기록은 선생님 검토 대기로 저장한다. */
     @Transactional
     public SaveObservationResponse save(AuthUser user, long childId, SaveObservationRequest req) {
         // 동의 철회(AiConsentService.revoke)와 줄 세운다(AIO-03). 잠근 뒤에 동의를 읽어야 막 커밋된 철회를 본다.
@@ -132,12 +128,8 @@ public class AiObservationService {
                 receipt.content(), receipt.modelVersion(), receipt.promptVersion(), receipt.frameCount(),
                 receipt.jti(), now));
 
-        Coaching result = source == ObservationSource.HOME
-                ? coaching.deliverForObservation(childId, saved.getId(),
-                        ObservationFocusRule.focusFor(receipt.content().childStates()))
-                : null;
         log.info("ai observation saved: childId={} source={} frames={}", childId, source, saved.getFrameCount());
-        return new SaveObservationResponse(ObservationResponse.from(saved, authorName(saved, null), user.id()), result);
+        return new SaveObservationResponse(ObservationResponse.from(saved, authorName(saved, null), user.id(), user.isTeacher()), null);
     }
 
     /** 보호자는 전부. 선생님은 기관 기록은 항상, 가정 기록은 보호자가 공유를 켠 경우만. */
@@ -153,7 +145,7 @@ public class AiObservationService {
         Set<ObservationSource> sources = EnumSet.allOf(ObservationSource.class);
         if (user.isTeacher()) {
             boolean homeShared = shareSettings.findById(childId).map(ShareSetting::isAiObservations).orElse(false);
-            if (!homeShared) sources = EnumSet.of(ObservationSource.INSTITUTION);
+            if (!homeShared || !consent.hasActiveConsent(childId)) sources = EnumSet.of(ObservationSource.INSTITUTION);
         }
         int n = Math.max(1, Math.min(MAX_LIST, limit));
         List<AiObservation> found;
@@ -172,12 +164,13 @@ public class AiObservationService {
                         .filter(o -> o.getSource() == ObservationSource.INSTITUTION)
                         .map(AiObservation::getCreatedBy).filter(Objects::nonNull).distinct().toList())
                 .stream().collect(Collectors.toMap(User::getId, User::getDisplayName));
-        return found.stream().map(o -> ObservationResponse.from(o, authorName(o, names), user.id())).toList();
+        return found.stream().map(o -> ObservationResponse.from(o, authorName(o, names), user.id(), user.isTeacher())).toList();
     }
 
     /** 보호자는 전부, 선생님은 자기가 만든 기록만 지울 수 있다. */
     @Transactional
     public void delete(AuthUser user, long childId, long observationId) {
+        access.lockChild(childId);
         access.requireOwnerOrLinkedTeacher(user, childId);
         AiObservation o = observations.findByIdAndChildId(observationId, childId).orElseThrow(ApiException::notFound);
         if (user.isTeacher() && !Objects.equals(o.getCreatedBy(), user.id())) {

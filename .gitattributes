@@ -5,3 +5,5 @@
 *.png binary
 *.task binary
 *.wasm binary
+# Keep the migration bytes originally applied in the production V10 release.
+src/main/resources/db/migration/V10__observation_review.sql text eol=crlf

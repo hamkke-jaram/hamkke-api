@@ -28,7 +28,8 @@ public final class RecordDtos {
             @NotNull @Min(0) @Max(2000) Integer respondedBidCount,
             @NotNull @Min(0) @Max(200) Integer distressEpisodeCount,
             @NotBlank @Size(max = 100) String modelVersion,
-            @NotBlank @Size(max = 20) String specVersion) {}
+            @NotBlank @Size(max = 20) String specVersion,
+            boolean awaitingAiReview) {}
 
     public record RecordResponse(long id, Instant recordedAt, double analyzedSeconds, double jointPlaySeconds,
                                  double jointPlayRatio, Double responseLatencySec, int childBidCount,

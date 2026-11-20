@@ -24,7 +24,7 @@ import java.util.List;
 @Entity
 @Table(name = "ai_observations")
 public class AiObservation {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
     private static final TypeReference<List<String>> STRINGS = new TypeReference<>() {};
     private static final TypeReference<List<Moment>> MOMENTS = new TypeReference<>() {};
 
@@ -77,7 +77,44 @@ public class AiObservation {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    public enum ReviewStatus { PENDING, PUBLISHED }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "review_status", length = 20)
+    private ReviewStatus reviewStatus;
+
+    @Column(name = "reviewed_by")
+    private Long reviewedBy;
+
+    @Column(name = "review_request_hash", length = 64)
+    private String reviewRequestHash;
+
+    @Column(name = "review_payload", columnDefinition = "TEXT")
+    private String reviewPayload;
+
     protected AiObservation() {}
+
+    public ReviewStatus getReviewStatus() { return reviewStatus; }
+
+    public boolean isPublicationRetry(long teacherId, String hash) {
+        return Long.valueOf(teacherId).equals(reviewedBy) && hash.equals(reviewRequestHash);
+    }
+
+    public void publish(long teacherId, String requestHash, AiReviewDtos.PublishedGuidance result) {
+        this.reviewStatus = ReviewStatus.PUBLISHED;
+        this.reviewPayload = write(result);
+        this.reviewedBy = teacherId;
+        this.reviewRequestHash = requestHash;
+    }
+
+    public AiReviewDtos.PublishedGuidance publishedGuidance() {
+        if (reviewStatus != ReviewStatus.PUBLISHED) return null;
+        try {
+            return JSON.readValue(reviewPayload, AiReviewDtos.PublishedGuidance.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("invalid stored review: id=" + id, e);
+        }
+    }
 
     public AiObservation(Long childId, Long createdBy, ObservationSource source, Instant recordedAt,
                          ObservationContent content, String modelVersion, String promptVersion, int frameCount,
@@ -85,6 +122,7 @@ public class AiObservation {
         this.childId = childId;
         this.createdBy = createdBy;
         this.source = source;
+        this.reviewStatus = source == ObservationSource.HOME ? ReviewStatus.PENDING : null;
         this.recordedAt = recordedAt;
         this.summary = content.summary();
         this.childStatesJson = write(content.childStates().stream().map(Enum::name).toList());

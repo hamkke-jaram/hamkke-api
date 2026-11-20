@@ -35,12 +35,24 @@ public class CardController {
     public List<DeliveryResponse> list(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
                                        @RequestParam(defaultValue = "20") int limit,
                                        @RequestParam(required = false) Long beforeId) {
+        requireCardAccess(user, childId);
+        return coaching.recent(childId, Math.max(1, Math.min(50, limit)), beforeId);
+    }
+
+    @GetMapping("/{deliveryId}")
+    @Transactional(readOnly = true)
+    public DeliveryResponse get(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
+                                @PathVariable long deliveryId) {
+        requireCardAccess(user, childId);
+        return coaching.getDelivery(childId, deliveryId);
+    }
+
+    private void requireCardAccess(AuthUser user, long childId) {
         access.requireOwnerOrLinkedTeacher(user, childId);
         if (user.isTeacher()) {
             boolean shared = shareSettings.findById(childId).map(s -> s.isCoachingCards()).orElse(false);
             if (!shared) throw ApiException.notFound();
         }
-        return coaching.recent(childId, Math.max(1, Math.min(50, limit)), beforeId);
     }
 
     @PostMapping("/{deliveryId}/tried")

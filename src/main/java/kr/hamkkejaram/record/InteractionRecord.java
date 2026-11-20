@@ -19,6 +19,13 @@ public class InteractionRecord {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "awaiting_ai_review", nullable = false)
+    private boolean awaitingAiReview;
+
+    boolean awaitingAiReview() { return awaitingAiReview; }
+
+    void awaitAiReview() { this.awaitingAiReview = true; }
+
     @Column(name = "child_id", nullable = false)
     private Long childId;
 

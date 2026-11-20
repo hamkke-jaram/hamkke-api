@@ -58,7 +58,7 @@ class RecordServiceConcurrentResendTest {
 
     private CreateRecordRequest request(String clientId) {
         return new CreateRecordRequest(clientId, NOW.minusSeconds(600), 120.0, 60.0, 1.2, 10, 8, 1,
-                "pose_landmarker_lite+audio-heuristic-1", "metrics-v1");
+                "pose_landmarker_lite+audio-heuristic-1", "metrics-v1", false);
     }
 
     private InteractionRecord savedByTheOtherRequest(String clientId) {

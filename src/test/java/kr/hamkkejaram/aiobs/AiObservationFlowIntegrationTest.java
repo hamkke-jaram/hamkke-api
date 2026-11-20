@@ -258,7 +258,7 @@ class AiObservationFlowIntegrationTest {
     // ---------- 가정 기록 ----------
 
     @Test
-    void homeFlowConsentSessionObservationAndCard() throws Exception {
+    void homeFlowConsentSessionObservationAndPendingReview() throws Exception {
         Account parent = signup("PARENT");
         long childId = createChild(parent);
 
@@ -287,25 +287,20 @@ class AiObservationFlowIntegrationTest {
         JsonNode o = saved.get("observation");
         assertThat(o.get("id").asLong()).isPositive();
         assertThat(o.get("source").asText()).isEqualTo("HOME");
-        assertThat(o.get("summary").asText()).startsWith("어른과 아이가 블록을");
-        assertThat(texts(o.get("childStates"))).containsExactly("PLAYING_TOGETHER", "REFUSING");
-        assertThat(texts(o.get("adultResponses"))).containsExactly("WAITING", "TALKING");
-        assertThat(o.at("/moments/0/t").asDouble()).isEqualTo(12.5);
-        assertThat(o.at("/moments/0/note").asText()).isEqualTo("아이가 블록을 밀어내요.");
-        assertThat(o.get("peopleCount").asInt()).isEqualTo(2);
+        assertThat(o.get("summary").isNull()).isTrue();
+        assertThat(o.get("childStates")).isEmpty();
+        assertThat(o.get("adultResponses")).isEmpty();
+        assertThat(o.get("moments")).isEmpty();
+        assertThat(o.get("peopleCount").asInt()).isZero();
+        assertThat(o.get("reviewStatus").asText()).isEqualTo("PENDING");
+        assertThat(o.get("publishedGuidance").isNull()).isTrue();
         assertThat(o.get("modelVersion").asText()).isEqualTo("qwen3.5:4b");
         assertThat(o.get("promptVersion").asText()).isEqualTo("obs-v1");
         assertThat(o.get("frameCount").asInt()).isEqualTo(6);
         assertThat(o.get("mine").asBoolean()).isTrue();
         assertThat(o.get("authorName").isNull()).isTrue();
         assertThat(o.get("recordedAt").asText()).isNotBlank();
-        // '싫다고 표현해요' 태그가 있으므로 '힘든 순간 함께하기' 카드
-        JsonNode card = saved.at("/coaching/delivery/card");
-        assertThat(card.get("metricFocus").asText()).isEqualTo("HARD_MOMENT");
-        assertThat(card.get("situation").asText()).isIn("ANY", "STEADY");
-        assertThat(card.get("sourceTitle").asText()).isNotBlank();
-        assertThat(card.get("evidenceTag").asText()).isNotBlank();
-        assertThat(saved.at("/coaching/guidance").isNull()).isTrue();
+        assertThat(saved.get("coaching").isNull()).isTrue();
 
         // 같은 영수증을 다시 쓰면 409
         MvcResult dup = postReceipt(parent, childId, sign(claims));
@@ -323,11 +318,7 @@ class AiObservationFlowIntegrationTest {
                 .andExpect(jsonPath("$[0].id").value(o.get("id").asLong()))
                 .andExpect(jsonPath("$[0].source").value("HOME"));
         mvc.perform(auth(get(path(childId, "/card-deliveries")), parent))
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].card.metricFocus").value("HARD_MOMENT"));
-        long deliveryId = saved.at("/coaching/delivery/id").asLong();
-        mvc.perform(auth(post(path(childId, "/card-deliveries/" + deliveryId + "/tried")), parent))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.triedAt").exists());
+                .andExpect(jsonPath("$.length()").value(0));
 
         // 기록을 지우면 그 기록으로 전달된 카드 이력도 함께 지워진다
         mvc.perform(auth(delete(path(childId, "/ai-observations/" + o.get("id").asLong())), parent))
@@ -339,52 +330,20 @@ class AiObservationFlowIntegrationTest {
     }
 
     @Test
-    void cardFocusFollowsChildStateTagsAndSkipsRecentCards() throws Exception {
+    void tagsDoNotPublishAnyRecommendationBeforeTeacherReview() throws Exception {
         Account parent = signup("PARENT");
         long childId = createChild(parent);
         agree(parent, childId);
-
-        // 힘든 순간 태그 → HARD_MOMENT. 네 번 받아도 최근 3장과 겹치지 않는다.
-        java.util.Set<Long> hardCards = new java.util.LinkedHashSet<>();
-        for (int i = 0; i < 4; i++) {
-            Map<String, Object> c = receiptFor(session(parent, childId));
-            c.put("obs", obs("아이가 울고 있고 어른이 곁에 앉아 있어요.", List.of("UPSET_CRYING"), List.of("COMFORTING"),
-                    List.of(), 2));
-            JsonNode card = save(parent, childId, c).at("/coaching/delivery/card");
-            assertThat(card.get("metricFocus").asText()).isEqualTo("HARD_MOMENT");
-            hardCards.add(card.get("id").asLong());
+        for (String state : List.of("UPSET_CRYING", "PLAYING_ALONE", "SEEKING_ADULT", "CALM")) {
+            Map<String, Object> claims = receiptFor(session(parent, childId));
+            claims.put("obs", obs("아이가 손을 들어요.", List.of(state), List.of(), List.of(), 1));
+            assertThat(save(parent, childId, claims).get("coaching").isNull()).isTrue();
         }
-        assertThat(hardCards).hasSize(4);
-
-        // 혼자 놀아요 → 함께 놀기
-        Map<String, Object> alone = receiptFor(session(parent, childId));
-        alone.put("obs", obs("아이가 혼자 자동차를 굴리고 있어요.", List.of("PLAYING_ALONE", "FOCUSED"), List.of(),
-                List.of(), 1));
-        JsonNode aloneCard = save(parent, childId, alone).at("/coaching/delivery/card");
-        assertThat(aloneCard.get("metricFocus").asText()).isEqualTo("JOINT_PLAY");
-        assertThat(aloneCard.get("situation").asText()).isIn("ANY", "STEADY");
-
-        // 어른에게 다가가요 → 반응
-        Map<String, Object> seeking = receiptFor(session(parent, childId));
-        seeking.put("obs", obs("아이가 어른에게 다가가 손을 내밀어요.", List.of("SEEKING_ADULT"), List.of("TALKING"),
-                List.of(), 2));
-        assertThat(save(parent, childId, seeking).at("/coaching/delivery/card/metricFocus").asText())
-                .isEqualTo("RESPONSE");
-
-        // 그 밖에는 GENERAL
-        Map<String, Object> calm = receiptFor(session(parent, childId));
-        calm.put("obs", obs("어른과 아이가 함께 블록을 쌓고 있어요.", List.of("PLAYING_TOGETHER", "CALM"),
-                List.of("JOINING_PLAY"), List.of(), 2));
-        JsonNode calmCard = save(parent, childId, calm).at("/coaching/delivery/card");
-        assertThat(calmCard.get("metricFocus").asText()).isEqualTo("GENERAL");
-        assertThat(calmCard.get("situation").asText()).isIn("ANY", "STEADY");
-
-        // 목록은 최신순
         JsonNode list = json(mvc.perform(auth(get(path(childId, "/ai-observations?limit=3")), parent))
                 .andExpect(status().isOk()).andReturn());
         assertThat(list).hasSize(3);
-        assertThat(list.get(0).at("/childStates/0").asText()).isEqualTo("PLAYING_TOGETHER");
-        assertThat(aiDeliveryCount(childId)).isEqualTo(7);
+        assertThat(list.get(0).get("reviewStatus").asText()).isEqualTo("PENDING");
+        assertThat(aiDeliveryCount(childId)).isZero();
     }
 
     @Test
@@ -489,7 +448,12 @@ class AiObservationFlowIntegrationTest {
                 List.of("SETTING_LIMIT"),
                 List.of(moment(5, "아이가 블록을 던져요."), moment(20, "아이에게 문제가 있어 보여요."),
                         moment(35, "이럴 때는 안아 주세요. 꼭 그렇게 하세요."), moment(50, "어른이 블록을 주워요.")), 2));
-        JsonNode o = save(parent, childId, c).get("observation");
+        long savedId = save(parent, childId, c).at("/observation/id").asLong();
+        Account teacher = signup("TEACHER");
+        link(parent, teacher, childId);
+        share(parent, childId, true, false);
+        JsonNode o = json(mvc.perform(auth(get(path(childId, "/ai-observations/" + savedId + "/review")), teacher))
+                .andExpect(status().isOk()).andReturn()).get("observation");
         assertThat(o.get("summary").isNull()).isTrue();
         assertThat(texts(o.get("moments").findValues("note")))
                 .containsExactly("아이가 블록을 던져요.", "어른이 블록을 주워요.");
@@ -505,6 +469,103 @@ class AiObservationFlowIntegrationTest {
         Map<String, Object> empty = receiptFor(session(parent, childId));
         empty.put("obs", obs("아이가 산만해 보여요.", List.of(), List.of(), List.of(moment(1, "주의가 부족해요.")), 1));
         assertRejected(parent, childId, sign(empty));
+    }
+
+    private Map<String,Object> reviewClaims(long teacherId, long childId, long observationId) {
+        Map<String,Object> signed = new HashMap<>();
+        long now = Instant.now().getEpochSecond();
+        signed.put("iss", "hamkke-ai");
+        signed.put("aud", "hamkke-api-guidance");
+        signed.put("typ", "ai-guidance");
+        signed.put("sub", Long.toString(teacherId));
+        signed.put("cid", childId);
+        signed.put("oid", observationId);
+        signed.put("iat", now);
+        signed.put("exp", now + 900);
+        signed.put("summary", "아이가 블록을 손으로 밀었어요.");
+        signed.put("corpusVersion", "source-test-v1");
+        signed.put("recommendations", List.of(Map.of(
+                "observation", "블록을 손으로 밀었어요.", "action", "아이가 고른 놀잇감으로 한 차례를 기다려 주세요.",
+                "reason", "아이의 관심을 따라가는 활동이에요.", "sourceId", "source-1",
+                "sourceTitle", "코칭 자료", "sourcePublisher", "출판기관", "sourceSection", "놀이 예시",
+                "sourceUrl", "https://example.org/activity")));
+        return signed;
+    }
+
+    @Test
+    void onlyLinkedTeacherWithCurrentSharingCanPublishSignedSelectedRecommendations() throws Exception {
+        Account parent = signup("PARENT");
+        Account teacher = signup("TEACHER");
+        Account stranger = signup("TEACHER");
+        long childId = createChild(parent);
+        agree(parent, childId);
+        long observationId = save(parent, childId, receiptFor(session(parent, childId))).at("/observation/id").asLong();
+        String url = path(childId, "/ai-observations/" + observationId + "/review");
+        mvc.perform(auth(get(url), parent)).andExpect(status().isNotFound());
+        link(parent, teacher, childId);
+        mvc.perform(auth(get(url), teacher)).andExpect(status().isNotFound());
+        share(parent, childId, true, false);
+        mvc.perform(auth(get(url), stranger)).andExpect(status().isNotFound());
+        mvc.perform(auth(get(url), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.ageMonths").isNumber())
+                .andExpect(jsonPath("$.reviewerId").value(teacher.id()))
+                .andExpect(jsonPath("$.observation.moments[0].note").value("아이가 블록을 밀어내요."));
+        String publish = url + "/publish";
+        Map<String,Object> claims = reviewClaims(teacher.id(), childId, observationId);
+        Map<String,String> request = Map.of("receipt", sign(claims));
+        mvc.perform(body(auth(post(publish), parent), request)).andExpect(status().isNotFound());
+        mvc.perform(body(auth(post(publish), stranger), request)).andExpect(status().isNotFound());
+        for (Map.Entry<String,Object> bad : Map.<String,Object>of("aud", "hamkke-api", "typ", "wrong", "oid", observationId+1,
+                "sub", Long.toString(stranger.id()), "cid", childId+1, "exp", 1).entrySet()) {
+            Map<String,Object> invalid = new HashMap<>(claims);
+            invalid.put(bad.getKey(), bad.getValue());
+            mvc.perform(body(auth(post(publish), teacher), Map.of("receipt", sign(invalid)))).andExpect(status().isBadRequest());
+        }
+        mvc.perform(body(auth(post(publish), teacher), Map.of("receipt", sign(claims), "selectedSourceIds", List.of("unretrieved"))))
+                .andExpect(status().isBadRequest());
+        mvc.perform(auth(get("/api/v1/me/export"), parent))
+                .andExpect(jsonPath("$.children[0].aiObservations[0].summary").doesNotExist());
+        share(parent, childId, false, false);
+        mvc.perform(body(auth(post(publish), teacher), request)).andExpect(status().isNotFound());
+        share(parent, childId, true, false);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mvc.perform(body(auth(post(publish), teacher), request)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.reviewStatus").value("PUBLISHED"))
+                    .andExpect(jsonPath("$.publishedGuidance.recommendations[0].sourceId").value("source-1"));
+        }
+        mvc.perform(body(auth(post(publish), teacher), Map.of("receipt", sign(claims), "selectedSourceIds", List.of())))
+                .andExpect(status().isConflict());
+        mvc.perform(auth(get(path(childId, "/ai-observations")), parent))
+                .andExpect(jsonPath("$[0].summary").value(claims.get("summary")))
+                .andExpect(jsonPath("$[0].moments").isEmpty())
+                .andExpect(jsonPath("$[0].publishedGuidance.recommendations[0].sourceUrl").value("https://example.org/activity"));
+        mvc.perform(auth(get("/api/v1/me/export"), parent))
+                .andExpect(jsonPath("$.children[0].aiObservations[0].publishedGuidance.recommendations[0].sourceId").value("source-1"));
+        mvc.perform(auth(delete(path(childId, "/ai-consent")), parent)).andExpect(status().isNoContent());
+        mvc.perform(auth(get(url), teacher)).andExpect(status().isNotFound());
+        assertThat(observationCount(childId)).isZero();
+    }
+
+    @Test
+    void canPublishEvidenceAbstentionAndLegacyRowsDoNotEnterQueue() throws Exception {
+        Account parent = signup("PARENT");
+        Account teacher = signup("TEACHER");
+        long childId = createChild(parent);
+        agree(parent, childId);
+        link(parent, teacher, childId);
+        share(parent, childId, true, false);
+        long old = save(parent, childId, receiptFor(session(parent, childId))).at("/observation/id").asLong();
+        jdbc.update("UPDATE ai_observations SET review_status = NULL WHERE id = ?", old);
+        mvc.perform(auth(get(path(childId, "/ai-observations/" + old + "/review")), teacher)).andExpect(status().isNotFound());
+        mvc.perform(auth(get(path(childId, "/ai-observations")), parent)).andExpect(jsonPath("$[0].moments[0].note").exists());
+        long id = save(parent, childId, receiptFor(session(parent, childId))).at("/observation/id").asLong();
+        Map<String,Object> claims = reviewClaims(teacher.id(), childId, id);
+        claims.put("recommendations", List.of());
+        claims.put("summary", "장면에서 확인할 수 있는 행동이 충분하지 않아요.");
+        mvc.perform(body(auth(post(path(childId, "/ai-observations/" + id + "/review/publish")), teacher),
+                        Map.of("receipt", sign(claims), "selectedSourceIds", List.of())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.publishedGuidance.recommendations").isEmpty());
     }
 
     // ---------- 기관 기록 ----------
@@ -707,7 +768,7 @@ class AiObservationFlowIntegrationTest {
         save(parent, sibling, receiptFor(session(parent, sibling)));
         Map<String, Object> pending = receiptFor(session(parent, childId)); // 분석은 끝났지만 아직 저장하지 않은 영수증
         assertThat(observationCount(childId)).isEqualTo(3);
-        assertThat(aiDeliveryCount(childId)).isEqualTo(2);
+        assertThat(aiDeliveryCount(childId)).isZero();
 
         // 선생님은 철회할 수 없다
         mvc.perform(auth(delete(path(childId, "/ai-consent")), teacher)).andExpect(status().isNotFound());
@@ -722,7 +783,7 @@ class AiObservationFlowIntegrationTest {
         mvc.perform(auth(get(path(childId, "/ai-observations")), teacher)).andExpect(jsonPath("$.length()").value(0));
         // 다른 아이의 기록은 그대로
         assertThat(observationCount(sibling)).isEqualTo(1);
-        assertThat(aiDeliveryCount(sibling)).isEqualTo(1);
+        assertThat(aiDeliveryCount(sibling)).isZero();
 
         // 동의에는 철회 시각이 남고, AI 관련 공유 설정은 꺼진다
         mvc.perform(auth(get(path(childId, "/ai-consent")), parent)).andExpect(jsonPath("$.agreed").value(false));

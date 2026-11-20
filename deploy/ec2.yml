@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Single Ubuntu host for the Hamkke Jaram API, MySQL and HTTPS gateway.
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet in VpcId with an Internet Gateway route.
+  OperatorCidr:
+    Type: String
+    Description: Public IPv4 address of the PC that runs the AI server, with /32.
+    AllowedPattern: '([0-9]{1,3}\.){3}[0-9]{1,3}/32'
+  AdminPublicKey:
+    Type: String
+    Description: OpenSSH ed25519 public key for the Ubuntu administrator.
+    AllowedPattern: 'ssh-ed25519 [A-Za-z0-9+/=]+( .*)?'
+  UbuntuImage:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+Resources:
+  AdminLogin:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Sub '${AWS::StackName}-admin'
+      PublicKeyMaterial: !Ref AdminPublicKey
+  Firewall:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public HTTP and HTTPS, SSH from the AI PC.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref OperatorCidr}
+  Backend:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      CreditSpecification: {CPUCredits: standard}
+      ImageId: !Ref UbuntuImage
+      KeyName: !Ref AdminLogin
+      MetadataOptions: {HttpTokens: required, HttpEndpoint: enabled, HttpPutResponseHopLimit: 1}
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: false
+          GroupSet: [!Ref Firewall]
+          SubnetId: !Ref PublicSubnetId
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: {VolumeType: gp3, VolumeSize: 30, Encrypted: true, DeleteOnTermination: true}
+      Tags:
+        - {Key: Name, Value: !Ref 'AWS::StackName'}
+        - {Key: Project, Value: hamkke-jaram}
+  Address:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Project, Value: hamkke-jaram}
+  AssociateAddress:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref Backend
+      AllocationId: !GetAtt Address.AllocationId
+Outputs:
+  InstanceId: {Value: !Ref Backend}
+  PublicIp: {Value: !Ref Address}

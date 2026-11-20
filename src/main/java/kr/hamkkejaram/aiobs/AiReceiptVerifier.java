@@ -61,12 +61,21 @@ public class AiReceiptVerifier {
      */
     public Verified verify(String receipt) {
         Instant now = clock.instant();
+        Claims payload = authenticatedClaims(receipt, AUDIENCE, now);
+        try {
+            return read(payload);
+        } catch (JwtException | ClassCastException e) {
+            throw new InvalidReceiptException("claims_malformed");
+        }
+    }
+
+    Claims authenticatedClaims(String receipt, String audience, Instant now) {
         Jws<Claims> jws;
         try {
             jws = Jwts.parser()
                     .verifyWith(settings.key())
                     .requireIssuer(ISSUER)
-                    .requireAudience(AUDIENCE)
+                    .requireAudience(audience)
                     .clock(() -> Date.from(now))
                     .clockSkewSeconds(CLOCK_SKEW.toSeconds())
                     .build()
@@ -78,14 +87,15 @@ public class AiReceiptVerifier {
         if (!"HS256".equals(jws.getHeader().getAlgorithm())) throw new InvalidReceiptException("alg_not_hs256");
 
         try {
-            return read(jws.getPayload(), now);
+            validateLifetime(jws.getPayload(), now);
+            return jws.getPayload();
         } catch (JwtException | ClassCastException e) {
             // 클레임 자료형이 약속과 다를 때(예: exp가 숫자가 아님)
             throw new InvalidReceiptException("claims_malformed");
         }
     }
 
-    private Verified read(Claims c, Instant now) {
+    private static void validateLifetime(Claims c, Instant now) {
         Date exp = c.getExpiration();
         Date iat = c.getIssuedAt();
         if (exp == null || iat == null) throw new InvalidReceiptException("exp_or_iat_missing");
@@ -97,7 +107,9 @@ public class AiReceiptVerifier {
         if (Duration.between(iat.toInstant(), exp.toInstant()).compareTo(MAX_LIFETIME) > 0) {
             throw new InvalidReceiptException("lifetime_too_long");
         }
+    }
 
+    private Verified read(Claims c) {
         // sub는 문자열로 온다(계약). 숫자로 와도 같은 값이면 받는다.
         long userId = positiveLong(c.get(Claims.SUBJECT), "sub");
         long childId = positiveLong(c.get("cid"), "cid");
@@ -112,10 +124,10 @@ public class AiReceiptVerifier {
         int frameCount = ObservationContentParser.intInRange(c.get("fc"), 1, settings.maxFrames(), "fc");
 
         return new Verified(userId, childId, source, jti.toLowerCase(Locale.ROOT), content, modelVersion,
-                promptVersion, frameCount, exp.toInstant());
+                promptVersion, frameCount, c.getExpiration().toInstant());
     }
 
-    private static long positiveLong(Object value, String field) {
+    static long positiveLong(Object value, String field) {
         long parsed;
         if (value instanceof String s) {
             try {

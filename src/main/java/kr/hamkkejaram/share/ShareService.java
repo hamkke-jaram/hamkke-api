@@ -85,6 +85,7 @@ public class ShareService {
 
     @Transactional
     public ShareSettingsResponse updateSettings(AuthUser user, long childId, ShareSettingsRequest req) {
+        access.lockChild(childId);
         access.requireOwner(user, childId);
         ShareSetting s = settingOf(childId);
         Instant now = clock.instant();
@@ -146,6 +147,7 @@ public class ShareService {
 
     @Transactional
     public void unlinkTeacher(AuthUser user, long childId, long teacherId) {
+        access.lockChild(childId);
         access.requireOwner(user, childId);
         if (links.deleteLink(teacherId, childId) == 0) throw ApiException.notFound();
     }
@@ -173,6 +175,7 @@ public class ShareService {
     /** 선생님이 스스로 연결을 끊는다. 이미 쓴 목표·관찰 메모는 남는다(TCH-07). */
     @Transactional
     public void unlinkSelf(AuthUser user, long childId) {
+        access.lockChild(childId);
         user.requireTeacher();
         if (links.deleteLink(user.id(), childId) == 0) throw ApiException.notFound();
     }

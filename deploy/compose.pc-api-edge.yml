@@ -1,0 +1,11 @@
+# Apply after compose.ec2-pc.yml only once the PC has the validated production DB.
+# The dedicated remote-forward port only accepts connections on the edge host itself.
+services:
+  web:
+    depends_on: !reset {}
+    environment:
+      API_UPSTREAM: 127.0.0.1:18980
+  api:
+    profiles: ["cloud-rollback"]
+  mysql:
+    profiles: ["cloud-rollback"]

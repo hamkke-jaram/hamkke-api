@@ -5,6 +5,7 @@ build/
 *.iml
 data/
 deploy/.env
+deploy/.env.new.*
 deploy/certs/
 deploy/certbot-www/
 *.log

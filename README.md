@@ -13,6 +13,7 @@
 - [API 명세](docs/api.md)
 - [AI 관찰 기록 명세](docs/ai-observation.md) — 세 저장소가 지키는 약속: 동의, 분석 토큰·영수증, 관찰 기록 객체, AI 서버 API
 - [배포 가이드](docs/deploy.md)
+- [EC2 백엔드와 Windows PC AI 서버 연결](deploy/ec2-pc.md)
 - 지표 정의서는 AI 저장소: [hamkke-ai/docs/metrics.md](https://github.com/hamkke-jaram/hamkke-ai/blob/main/docs/metrics.md)
 
 | 저장소 | 역할 |

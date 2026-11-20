@@ -100,10 +100,23 @@ public class NoteService {
                     .orElseThrow(ApiException::unknownCursor);
             list = notes.findOlderThan(childId, anchor.getObservedOn(), anchor.getId(), page);
         }
+        return noteResponses(user, childId, list);
+    }
+
+    @Transactional(readOnly = true)
+    public ObservationResponse getNote(AuthUser user, long childId, long noteId) {
+        access.requireOwnerOrLinkedTeacher(user, childId);
+        ObservationNote note = notes.findByIdAndChildId(noteId, childId).orElseThrow(ApiException::notFound);
+        return noteResponses(user, childId, List.of(note)).getFirst();
+    }
+
+    private List<ObservationResponse> noteResponses(AuthUser user, long childId, List<ObservationNote> list) {
         Map<Long, String> names = names(list.stream().map(ObservationNote::getTeacherId).toList());
-        Map<Long, AttachedCard> cards = deliveries.findAllById(list.stream().map(ObservationNote::getCardDeliveryId)
-                        .filter(java.util.Objects::nonNull).distinct().toList())
-                .stream().collect(Collectors.toMap(CardDelivery::getId, NoteService::attached));
+        Map<Long, AttachedCard> cards = user.isParent() || areCardsShared(childId)
+                ? deliveries.findAllById(list.stream().map(ObservationNote::getCardDeliveryId)
+                                .filter(java.util.Objects::nonNull).distinct().toList())
+                        .stream().collect(Collectors.toMap(CardDelivery::getId, AttachedCard::from))
+                : Map.of();
         return list.stream()
                 .map(o -> ObservationResponse.from(o, names.getOrDefault(o.getTeacherId(), "선생님"),
                         o.getCardDeliveryId() == null ? null : cards.get(o.getCardDeliveryId())))
@@ -120,10 +133,10 @@ public class NoteService {
         AttachedCard card = null;
         if (req.cardDeliveryId() != null) {
             // 이 아이가 받은 카드이고, 보호자가 카드 공유를 켠 경우만(카드 목록을 볼 수 있는 것과 같은 규칙). 아니면 없는 것처럼 404.
-            boolean shared = shareSettings.findById(childId).map(s -> s.isCoachingCards()).orElse(false);
+            if (!areCardsShared(childId)) throw ApiException.notFound();
             CardDelivery d = deliveries.findByIdAndChildId(req.cardDeliveryId(), childId)
-                    .filter(x -> shared).orElseThrow(ApiException::notFound);
-            card = attached(d);
+                    .orElseThrow(ApiException::notFound);
+            card = AttachedCard.from(d);
         }
         String title = req.title() == null || req.title().isBlank() ? null : req.title().strip();
         ObservationNote n = notes.save(new ObservationNote(childId, user.id(), title, req.content().trim(),
@@ -140,9 +153,8 @@ public class NoteService {
         notes.delete(n);
     }
 
-    private static AttachedCard attached(CardDelivery d) {
-        var c = d.getCard();
-        return new AttachedCard(d.getId(), c.getId(), c.getCode(), c.getTitle(), c.getBody());
+    private boolean areCardsShared(long childId) {
+        return shareSettings.findById(childId).map(s -> s.isCoachingCards()).orElse(false);
     }
 
     private ChildGoal ownGoal(AuthUser user, long childId, long goalId) {

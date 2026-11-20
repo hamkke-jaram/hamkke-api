@@ -63,6 +63,12 @@ public class NoteController {
         return service.listNotes(user, childId, limit, beforeId);
     }
 
+    @GetMapping("/observations/{noteId}")
+    public ObservationResponse observation(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
+                                           @PathVariable long noteId) {
+        return service.getNote(user, childId, noteId);
+    }
+
     @PostMapping("/observations")
     @ResponseStatus(HttpStatus.CREATED)
     public ObservationResponse createObservation(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,

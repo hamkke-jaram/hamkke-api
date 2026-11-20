@@ -70,7 +70,8 @@ public class RecordService {
     }
 
     private SaveResult existingResult(InteractionRecord r) {
-        return new SaveResult(new SaveRecordResponse(RecordResponse.from(r), r.changes(), coaching.existingFor(r)),
+        return new SaveResult(new SaveRecordResponse(RecordResponse.from(r), r.changes(),
+                r.awaitingAiReview() ? new Coaching(null, null) : coaching.existingFor(r)),
                 false);
     }
 
@@ -93,10 +94,11 @@ public class RecordService {
                 req.respondedBidCount(), req.distressEpisodeCount(), req.modelVersion().trim(), req.specVersion(),
                 now);
         TrendCalculator.Result trend = TrendCalculator.compute(record.values(), baseline);
+        if (req.awaitingAiReview()) record.awaitAiReview();
         record.applyTrend(trend);
         record = records.saveAndFlush(record);
 
-        Coaching result = coaching.deliverFor(record, trend);
+        Coaching result = record.awaitingAiReview() ? new Coaching(null, null) : coaching.deliverFor(record, trend);
         return new SaveResult(new SaveRecordResponse(RecordResponse.from(record), trend.changes(), result), true);
     }
 

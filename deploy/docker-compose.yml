@@ -87,6 +87,7 @@ services:
       PORT: "8090"
       AI_SHARED_SECRET: ${AI_SHARED_SECRET:-}   # api 와 같은 값. 비어 있으면 ai 서버가 기동하지 않는다
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      DAYCARE_API_ORIGIN: ${DAYCARE_API_ORIGIN:-}
       VL_MODEL: ${VL_MODEL:-qwen3.5:4b}
       VL_MAX_CONCURRENCY: ${VL_MAX_CONCURRENCY:-1}
       VL_MAX_WAITING: ${VL_MAX_WAITING:-}             # 기본 2

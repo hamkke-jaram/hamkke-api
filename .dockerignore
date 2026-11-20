@@ -1,3 +1,8 @@
 .gradle
 build
 data
+.git
+deploy/.env
+deploy/.env.new.*
+deploy/certs
+deploy/certbot-www

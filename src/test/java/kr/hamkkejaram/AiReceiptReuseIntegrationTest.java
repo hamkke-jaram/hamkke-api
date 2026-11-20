@@ -136,7 +136,7 @@ class AiReceiptReuseIntegrationTest extends IntegrationTestSupport {
         String receipt = TestReceipts.sign(receiptClaims(parent, childId));
 
         long id = saved(postReceipt(parent, childId, receipt));
-        assertThat(aiDeliveries(childId)).isEqualTo(1);
+        assertThat(aiDeliveries(childId)).isZero();
         assertAlreadyUsed(postReceipt(parent, childId, receipt)); // 지우기 전에도 한 번뿐(예전과 같다)
 
         mvc.perform(auth(delete(path(childId, "/ai-observations/" + id)), parent.token()))
@@ -276,7 +276,7 @@ class AiReceiptReuseIntegrationTest extends IntegrationTestSupport {
         assertThat(statuses.stream().filter(s -> s == 201).count()).as(statuses.toString()).isEqualTo(1);
         assertThat(statuses.stream().filter(s -> s == 409).count()).as(statuses.toString()).isEqualTo(5);
         assertThat(rows("ai_observations", childId)).isEqualTo(1);
-        assertThat(aiDeliveries(childId)).isEqualTo(1);
+        assertThat(aiDeliveries(childId)).isZero();
     }
 
     /**

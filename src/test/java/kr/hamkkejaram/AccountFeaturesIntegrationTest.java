@@ -374,7 +374,9 @@ class AccountFeaturesIntegrationTest {
         assertThat(child.get("nickname").asText()).isEqualTo("하늘");
         assertThat(child.at("/shareSettings/jointPlay").asBoolean()).isFalse();
         assertThat(child.get("interactionRecords").size()).isEqualTo(1);
-        assertThat(child.get("cardDeliveries").size()).isEqualTo(2); // 지표 기록 1 + AI 관찰 기록 1
+        assertThat(child.get("cardDeliveries").size()).isEqualTo(1); // 일반 지표 기록에서만 즉시 전달
+        assertThat(child.at("/aiObservations/0/reviewStatus").asText()).isEqualTo("PENDING");
+        assertThat(child.at("/aiObservations/0/summary").isNull()).isTrue();
         assertThat(child.at("/cardDeliveries/0/cardTitle").asText()).isNotBlank();
         assertThat(child.get("aiObservations").size()).isEqualTo(1);
         assertThat(child.at("/aiObservations/0/source").asText()).isEqualTo("HOME");

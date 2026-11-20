@@ -222,7 +222,7 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 ```
 
 `changeTrend = NEEDS_ATTENTION`이면 `coaching.delivery = null`, `coaching.guidance = { "message": "...", "resources": [ ... ] }`.
-그 밖의 추이에서는 카드 선택기가 실패해도 대체 규칙([SPEC 6.4](SPEC.md#64-인터페이스와-장애-시-대체-규칙))으로 카드 1장이 담긴다. `delivery`와 `guidance`가 모두 `null`인 경우는 활성 카드가 한 장도 없을 때뿐이다.
+그 밖의 추이에서는 카드 선택기가 실패해도 대체 규칙([SPEC 6.4](SPEC.md#64-인터페이스와-장애-시-대체-규칙))으로 카드 1장이 담긴다. 영상 검토를 요청하는 클라이언트는 `awaitingAiReview: true`를 함께 보낸다. 이 경우 지표만 저장하고 `coaching.delivery`와 `coaching.guidance`는 모두 `null`이다. 같은 `clientRecordId`로 다시 보내면 최초 저장 때 정한 결과를 반환한다.
 
 ```json
 // GET /children/{id}/weekly-summary?weeks=8
@@ -235,6 +235,7 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 | 메서드 | 경로 | 권한 | 설명 |
 |---|---|---|---|
 | GET | `/children/{id}/card-deliveries?limit=20&beforeId?` | P(own), T(linked, 카드 공유 켜짐) | 받은 카드 이력(전달 시각 최신순, `limit` 1~50, `beforeId`는 맨 위 "목록 커서"). 항목은 위 `coaching.delivery`와 같은 모양. AI 관찰 기록(가정)으로 받은 카드도 여기에 함께 나온다 |
+| GET | `/children/{id}/card-deliveries/{deliveryId}` | P(own), T(linked, 카드 공유 켜짐) | 받은 카드 한 건. 목록과 같은 모양이며 다른 아이의 카드이거나 교사에게 카드 공유가 꺼져 있으면 404 |
 | POST | `/children/{id}/card-deliveries/{deliveryId}/tried` | P(own) | "해봤어요" 표시 → 갱신된 전달 항목(이미 표시했으면 처음 시각 유지) |
 
 카드(`card`)의 `code`는 카드마다 하나뿐인 이름이다(예: `RS-A-01`, `HM-A-03`). 화면이 카드에 맞는 그림을 고를 때 쓰며, 카드가 담기는 모든 응답(기록 저장, AI 관찰 기록 저장, 카드 이력, "해봤어요")에 항상 들어 있다.
@@ -261,6 +262,7 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 | GET | `/teacher/children` | T | 연결된 아동 목록 `[ { id, nickname, ageMonths, linkedAt } ]` |
 | DELETE | `/teacher/links/{childId}` | T(linked) | 선생님이 스스로 연결 끊기 → 204. 이후 그 아이의 모든 경로는 404. 이미 쓴 목표·관찰 메모는 남는다(TCH-07). 연결되지 않은 아이면 404, 부모 계정이면 403 `FORBIDDEN_ROLE` |
 | GET | `/teacher/children/{id}/shared-summary?weeks=8` | T(linked) | 공유된 항목만 담긴 주간 요약(`weeks` 1~26) |
+| GET | `/teacher/children/{id}/daycare-coaching/cards?month=YYYY-MM` | T(linked), COACHING_CARDS | 한국 시간 기준 해당 월에 전달된 활성 코칭 카드의 `[{code,title,body}]`. 가장 최근에 전달된 카드부터 중복을 빼고 최대 8장. 해당 월에 카드가 없으면 `[]`, 공유 철회·연결 해제는 404 |
 
 ```json
 // GET /teacher/children/7/shared-summary  (jointPlay만 공유된 경우)
@@ -279,7 +281,8 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 | POST | `/children/{id}/goals` | T(linked) | `{ title(1~60), description(0~500) }` → 201 |
 | PATCH | `/children/{id}/goals/{goalId}` | T(작성자) | `{ title?, description?, status? }` — `status`: `IN_PROGRESS`, `ACHIEVED`, `ARCHIVED`. 보낸 항목만 바뀐다. `title`을 보냈다면 공백만으로 둘 수 없다(400 `VALIDATION_FAILED`) |
 | DELETE | `/children/{id}/goals/{goalId}` | T(작성자) | → 204 |
-| GET | `/children/{id}/observations?limit=50&beforeId?` | P(own), T(linked) | 메모 목록(관찰일 최신순, 같은 날은 id 큰 순, `limit` 1~100, `beforeId`는 맨 위 "목록 커서") |
+| GET | `/children/{id}/observations?limit=50&beforeId?` | P(own), T(linked) | 메모 목록(관찰일 최신순, 같은 날은 id 큰 순, `limit` 1~100, `beforeId`는 맨 위 "목록 커서"). 보호자는 메모에 첨부된 카드를 볼 수 있다. 교사는 조회 시점에 카드 공유가 켜져야 첨부를 볼 수 있다. 공유를 끄면 메모의 제목·본문은 보이고 `card`는 비워진다. 교사의 데이터 내보내기도 현재 연결과 공유를 확인한다. |
+| GET | `/children/{id}/observations/{noteId}` | P(own), T(linked) | 해당 아이의 메모 한 건. 목록과 같은 응답과 첨부 공유 규칙을 사용한다. 다른 아이의 메모는 404 |
 | POST | `/children/{id}/observations` | T(linked) | `{ content(1~1000), observedOn: "2026-11-06", title?(~40자), cardDeliveryId? }` → 201. `cardDeliveryId`는 이 아이가 받은 코칭 카드이고 보호자가 `coachingCards` 공유를 켠 경우만 첨부할 수 있다(아니면 404) |
 | DELETE | `/children/{id}/observations/{noteId}` | T(작성자) | → 204 |
 
@@ -319,7 +322,7 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 ```
 1) POST /children/{id}/ai-sessions            → 분석 토큰
 2) POST /ai/v1/analyze (AI 서버, Bearer 분석 토큰, 장면 사진 ≤6장)  → { observation, receipt, ... }
-3) POST /children/{id}/ai-observations { receipt }  → 저장 + (가정 기록이면) 카드 1장
+3) POST /children/{id}/ai-observations { receipt }  → 가정 기록은 교사 검토 대기로 저장
 ```
 
 | 메서드 | 경로 | 권한 | 설명 |
@@ -375,29 +378,23 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 그 밖의 응답: 같은 `jti`를 다시 쓰면 409 `DUPLICATE_REQUEST`(그 기록을 지운 뒤에 다시 보내도 같다). 저장 시점에 분석 토큰 발급 조건(동의·기관 촬영 허용)을 다시 확인하므로, 그 사이 동의가 철회됐으면 P는 422 `AI_CONSENT_REQUIRED`, T는 404. AI 기능이 꺼져 있으면 503 `AI_UNAVAILABLE`.
 
 ```json
-// POST /children/7/ai-observations → 201 (가정 기록)
+// POST /children/7/ai-observations → 201 (보호자가 새 가정 기록을 저장한 응답)
 {
   "observation": {
     "id": 12, "source": "HOME", "recordedAt": "2026-11-13T02:05:00Z",
-    "summary": "어른과 아이가 블록을 사이에 두고 마주 앉아 있어요. 아이가 블록을 밀어내자 어른이 잠시 기다린 뒤 말을 걸어요.",
-    "childStates": ["PLAYING_TOGETHER", "REFUSING"],
-    "adultResponses": ["WAITING", "TALKING"],
-    "moments": [ { "t": 12.5, "note": "아이가 블록을 밀어내요." } ],
-    "peopleCount": 2,
+    "summary": null, "childStates": [], "adultResponses": [], "moments": [], "peopleCount": 0,
     "modelVersion": "qwen3.5:4b", "promptVersion": "obs-v1", "frameCount": 6,
-    "authorName": null, "mine": true, "createdAt": "2026-11-13T02:06:10.120Z"
+    "authorName": null, "mine": true, "createdAt": "2026-11-13T02:06:10.120Z",
+    "reviewStatus": "PENDING", "publishedGuidance": null
   },
-  "coaching": {
-    "delivery": { "id": 91, "deliveredAt": "...", "triedAt": null,
-                  "card": { "id": 17, "title": "...", "body": "...", "situation": "ANY", "metricFocus": "HARD_MOMENT",
-                            "evidenceTag": "...", "sourceTitle": "...", "sourceUrl": "...", "author": "...", "reviewer": null,
-                            "code": "HM-A-01" } },
-    "guidance": null
-  }
+  "coaching": null
 }
 ```
 
-- `summary`는 없을 수 있다(`null`). `authorName`은 기관 기록을 만든 선생님의 표시명이고 가정 기록에서는 `null`이다(선생님에게 보호자 이름을 싣지 않는다). `mine`은 지금 요청한 사람이 만든 기록인지(선생님 화면의 삭제 버튼에 쓴다).
-- 가정 기록(`HOME`)은 `coaching.delivery`에 카드 1장이 담긴다. 초점은 아이 모습 태그로 정한다([SPEC 6.5](SPEC.md#65-ai-관찰-기록가정의-카드)). `guidance`는 항상 `null`이다. 활성 카드가 한 장도 없을 때만 `delivery`도 `null`.
-- 기관 기록(`INSTITUTION`)은 `"coaching": null`.
+- 새 가정 기록은 `PENDING`이다. 보호자 목록과 데이터 내려받기에는 검토 전 관찰 문장과 태그를 담지 않는다. 기존 가정 기록과 기관 기록은 `reviewStatus: null`로 표시한다.
+- `GET /children/{id}/ai-observations/{observationId}/review`는 현재 연결된 교사가 해당 아이의 AI 분석 동의와 가정 AI 관찰 공유가 유효할 때 사용할 수 있다. 응답은 `{ reviewerId, status, ageMonths, observation }`이며, 나이는 기록 시점의 월령이다.
+- 교사는 PC AI의 `POST /ai/v1/observation-guidance`로 상황을 검토하고 근거를 조회한다. 반환된 영수증은 교사, 아이, 기록, 검토한 요약, 추천, 자료 버전에 묶여 있다.
+- `POST /children/{id}/ai-observations/{observationId}/review/publish`는 `{ receipt, selectedSourceIds? }`를 받는다. 생략하면 조회한 추천을 모두 게시하고 빈 배열이면 요약만 게시한다. 현재 권한을 재확인하고 최초 게시만 허용한다. 같은 교사의 동일한 재전송은 저장된 결과를 반환한다.
+- 게시 후 보호자는 `PUBLISHED`와 `publishedGuidance: { summary, recommendations, corpusVersion, reviewedAt }`를 받는다. 각 추천에는 `observation, action, reason, sourceId, sourceTitle, sourcePublisher, sourceUrl, sourceSection`이 있다.
+
 - 목록(`GET`)의 항목은 위 `observation`과 같은 모양의 배열이다.

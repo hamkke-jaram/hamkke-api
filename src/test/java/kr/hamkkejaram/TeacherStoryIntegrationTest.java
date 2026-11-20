@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -83,6 +84,63 @@ class TeacherStoryIntegrationTest extends IntegrationTestSupport {
         // 제목 40자 넘으면 받지 않는다
         mvc.perform(body(auth(post(notes(childId)), teacher), story("가".repeat(41), "내용", null)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void revokedCardSharingHidesOldAttachmentsFromTeachersAndTheirExports() throws Exception {
+        String parent = token(signup("PARENT"));
+        String teacher = token(signup("TEACHER"));
+        long childId = createChild(parent);
+        link(parent, teacher, childId);
+        postRecord(parent, childId, Instant.now().minusSeconds(3600));
+        long deliveryId = firstDelivery(parent, childId);
+        shareCards(parent, childId, true);
+        JsonNode note = json(mvc.perform(body(auth(post(notes(childId)), teacher),
+                        story("시연 이야기", "블록을 골랐어요.", deliveryId))).andExpect(status().isCreated()).andReturn());
+        String noteDetail = notes(childId) + "/" + note.get("id").asLong();
+        String cardDetail = "/api/v1/children/" + childId + "/card-deliveries/" + deliveryId;
+        mvc.perform(auth(get(noteDetail), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.card.deliveryId").value(deliveryId));
+        mvc.perform(auth(get(cardDetail), teacher)).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(deliveryId));
+        long otherChild = createChild(parent);
+        mvc.perform(auth(get(notes(otherChild) + "/" + note.get("id").asLong()), parent)).andExpect(status().isNotFound());
+        mvc.perform(auth(get("/api/v1/children/" + otherChild + "/card-deliveries/" + deliveryId), parent))
+                .andExpect(status().isNotFound());
+        mvc.perform(auth(get("/api/v1/me/export"), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.teacher.observationNotes[0].cardDeliveryId").value(deliveryId));
+
+        shareCards(parent, childId, false);
+        String newTeacher = token(signup("TEACHER"));
+        link(parent, newTeacher, childId);
+        for (String viewer : java.util.List.of(teacher, newTeacher)) {
+            mvc.perform(auth(get(noteDetail), viewer)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(note.get("id").asLong()))
+                    .andExpect(jsonPath("$.card").doesNotExist());
+            mvc.perform(auth(get(cardDetail), viewer)).andExpect(status().isNotFound());
+            mvc.perform(auth(get(notes(childId)), viewer)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].title").value("시연 이야기"))
+                    .andExpect(jsonPath("$[0].content").value("블록을 골랐어요."))
+                    .andExpect(jsonPath("$[0].card").doesNotExist());
+        }
+        mvc.perform(auth(get("/api/v1/me/export"), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.teacher.observationNotes[0].title").value("시연 이야기"))
+                .andExpect(jsonPath("$.teacher.observationNotes[0].cardDeliveryId").doesNotExist());
+        mvc.perform(auth(get(notes(childId)), parent)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].card.deliveryId").value(deliveryId));
+        mvc.perform(auth(get(noteDetail), parent)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.card.deliveryId").value(deliveryId));
+        mvc.perform(auth(get(cardDetail), parent)).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(deliveryId));
+        mvc.perform(auth(get("/api/v1/me/export"), parent)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.children[0].observationNotes[0].card.deliveryId").value(deliveryId));
+
+        shareCards(parent, childId, true);
+        mvc.perform(auth(get(notes(childId)), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].card.deliveryId").value(deliveryId));
+        mvc.perform(auth(delete("/api/v1/children/" + childId + "/teachers/" + note.get("teacherId").asLong()), parent))
+                .andExpect(status().isNoContent());
+        mvc.perform(auth(get("/api/v1/me/export"), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.teacher.observationNotes[0].title").value("시연 이야기"))
+                .andExpect(jsonPath("$.teacher.observationNotes[0].cardDeliveryId").doesNotExist());
     }
 
     @Test

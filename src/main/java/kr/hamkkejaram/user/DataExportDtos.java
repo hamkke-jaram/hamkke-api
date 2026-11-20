@@ -2,6 +2,8 @@ package kr.hamkkejaram.user;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import kr.hamkkejaram.aiobs.AdultResponse;
+import kr.hamkkejaram.aiobs.AiObservation.ReviewStatus;
+import kr.hamkkejaram.aiobs.AiReviewDtos.PublishedGuidance;
 import kr.hamkkejaram.aiobs.ChildState;
 import kr.hamkkejaram.aiobs.ObservationContent.Moment;
 import kr.hamkkejaram.aiobs.ObservationSource;
@@ -52,7 +54,8 @@ public final class DataExportDtos {
     public record AiObservationItem(long id, ObservationSource source, Instant recordedAt, String summary,
                                     List<ChildState> childStates, List<AdultResponse> adultResponses,
                                     List<Moment> moments, int peopleCount, String modelVersion,
-                                    String promptVersion, int frameCount, String authorName, Instant createdAt) {}
+                                    String promptVersion, int frameCount, String authorName, Instant createdAt,
+                                    ReviewStatus reviewStatus, PublishedGuidance publishedGuidance) {}
 
     /** 교사: 지금 연결된 아이, 그리고 본인이 쓴 목표·관찰 메모(연결이 끊긴 아이의 것도 남아 있으면 담긴다). */
     public record TeacherExport(List<TeacherLinkItem> links, List<TeacherGoalItem> goals,

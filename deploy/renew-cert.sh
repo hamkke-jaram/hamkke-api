@@ -34,12 +34,18 @@ main_pid=$$
 trap '[ "$BASHPID" = "$main_pid" ] && alert "renew-cert.sh 가 ${LINENO}번째 줄에서 멈췄어요. /var/log/hamkke-renew-cert.log 를 확인하세요"' ERR
 
 SERVER_NAME="$(env_value SERVER_NAME)"
+warn_days=14
+after_renewal_days=30
+if [[ "$SERVER_NAME" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+  warn_days=1
+  after_renewal_days=1   # IP 인증서는 약 6일 동안 유효하다.
+fi
 CERT_DIR="$(env_value CERT_DIR)"
 CERT_DIR="${CERT_DIR:-./certs}"
 case "$CERT_DIR" in /*) ;; *) CERT_DIR="$DEPLOY_DIR/${CERT_DIR#./}" ;; esac
 
 check() {
-  local days="${1:-14}"
+  local days="${1:-$warn_days}"
   [[ "$days" =~ ^[0-9]+$ ]] || fail "일수는 정수여야 해요"
   local cert="$CERT_DIR/fullchain.pem"
   [ -f "$cert" ] || fail "$cert 이 없어요"
@@ -70,12 +76,12 @@ deploy_hook() {
   docker compose exec -T web nginx -t
   docker compose exec -T web nginx -s reload
   log "인증서를 바꾸고 nginx 를 다시 읽혔어요"
-  check 30 || true
+  check "$after_renewal_days" || true
 }
 
 case "${1:-}" in
   # check 가 실패하면 이미 알렸으니 ERR 트랩을 거치지 않고 끝낸다.
-  check) if check "${2:-14}"; then exit 0; else exit 1; fi ;;
+  check) if check "${2:-$warn_days}"; then exit 0; else exit 1; fi ;;
   deploy-hook) deploy_hook; exit 0 ;;
 esac
 

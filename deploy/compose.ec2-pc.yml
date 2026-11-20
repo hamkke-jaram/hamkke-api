@@ -1,0 +1,17 @@
+# Dedicated Linux EC2 host. These ports must agree with the Windows tunnel and sshd rule.
+services:
+  ai: !reset null
+
+  web:
+    network_mode: host
+    ports: !reset []
+    environment:
+      API_UPSTREAM: 127.0.0.1:18080
+      AI_UPSTREAM: 127.0.0.1:18090
+
+  api:
+    ports:
+      - "127.0.0.1:18080:8080"
+    environment:
+      AI_ENABLED: "true"
+      AI_SHARED_SECRET: ${AI_SHARED_SECRET:?Set the same AI_SHARED_SECRET on the Windows AI server}

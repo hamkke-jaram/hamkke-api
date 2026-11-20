@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class ObservationWordingCasesTest {
     private static final String RESOURCE = "/wording-cases.json";
     /** 사본의 SHA-256. 원본이 바뀌면 사본을 바이트 그대로 다시 복사하고 이 값을 함께 고친다. */
-    private static final String EXPECTED_SHA256 = "5e88962f896afb5b31b5bda7ccacac513888c7c9eb96e947ff41e433a9fff549";
+    private static final String EXPECTED_SHA256 = "81becd67580a60914c6ca36138111f6792e19da611cd7db4fd12b855fb637a43";
     /** 저장소를 나란히 클론했을 때의 원본 위치(hamkke-api 에서 본 경로). */
     private static final Path ORIGINAL = Path.of("..", "hamkke-ai", "server", "test", "wording-cases.json");
 

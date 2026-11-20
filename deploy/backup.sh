@@ -9,6 +9,7 @@
 # 설정: deploy/.env 에서 아래 이름만 한 줄씩 꺼내 읽는다(.env 를 통째로 셸에서 실행하지 않는다).
 #   BACKUP_DIR                 백업 파일을 둘 폴더(기본 $HOME/backup)
 #   BACKUP_KEEP_DAYS           이 서버에 두는 일수(기본 7, 1 이상)
+#   BACKUP_INCLUDE_ROUTINES    저장 프로시저·함수도 덤프할지(기본 true, MySQL 8.4에서 전역 SELECT 필요)
 #   BACKUP_S3_URI              버킷의 mysql/ 아래여야 한다. 예: s3://hamkke-backup/mysql   (비우면 올리지 않는다)
 #   BACKUP_S3_SSE              AES256(기본) 또는 aws:kms
 #   BACKUP_S3_KMS_KEY_ID       aws:kms 일 때 쓸 KMS 키(선택)
@@ -52,6 +53,13 @@ S3_SSE="${BACKUP_S3_SSE:-$(env_value BACKUP_S3_SSE)}"
 S3_SSE="${S3_SSE:-AES256}"
 KMS_KEY_ID="${BACKUP_S3_KMS_KEY_ID:-$(env_value BACKUP_S3_KMS_KEY_ID)}"
 PASSPHRASE_FILE="${BACKUP_PASSPHRASE_FILE:-$(env_value BACKUP_PASSPHRASE_FILE)}"
+INCLUDE_ROUTINES="${BACKUP_INCLUDE_ROUTINES:-$(env_value BACKUP_INCLUDE_ROUTINES)}"
+routine_args=()
+case "${INCLUDE_ROUTINES:-true}" in
+  true) routine_args+=(--routines) ;;
+  false) ;;
+  *) fail "BACKUP_INCLUDE_ROUTINES 는 true 또는 false 여야 해요" ;;
+esac
 
 [[ "$KEEP_DAYS" =~ ^[1-9][0-9]*$ ]] || fail "BACKUP_KEEP_DAYS 는 1 이상의 정수여야 해요"
 if [ -n "$PASSPHRASE_FILE" ]; then
@@ -86,7 +94,7 @@ log "덤프 시작 → $name"
 # --single-transaction: 잠그지 않고 일관된 덤프. --no-tablespaces: 앱 계정에 PROCESS 권한이 없어도 된다.
 dump() {
   docker compose exec -T mysql sh -c \
-    'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump -u"$MYSQL_USER" --single-transaction --no-tablespaces --routines --triggers --set-gtid-purged=OFF --default-character-set=utf8mb4 "$MYSQL_DATABASE"'
+    'MYSQL_PWD="$MYSQL_PASSWORD" exec mysqldump -u"$MYSQL_USER" --single-transaction --no-tablespaces --triggers --set-gtid-purged=OFF --default-character-set=utf8mb4 "$@" "$MYSQL_DATABASE"' sh "${routine_args[@]}"
 }
 if [ -n "$PASSPHRASE_FILE" ]; then
   dump | gzip -9 | gpg --batch --yes --quiet --symmetric --cipher-algo AES256 --pinentry-mode loopback \

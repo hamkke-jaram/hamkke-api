@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import kr.hamkkejaram.card.CardDelivery;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -36,7 +37,12 @@ public final class NoteDtos {
                                            @Size(max = 40) String title, Long cardDeliveryId) {}
 
     /** 이야기에 첨부한 코칭 카드(화면은 code로 그림을 고른다). */
-    public record AttachedCard(long deliveryId, long cardId, String code, String title, String body) {}
+    public record AttachedCard(long deliveryId, long cardId, String code, String title, String body) {
+        public static AttachedCard from(CardDelivery d) {
+            var c = d.getCard();
+            return new AttachedCard(d.getId(), c.getId(), c.getCode(), c.getTitle(), c.getBody());
+        }
+    }
 
     public record ObservationResponse(long id, String title, String content, LocalDate observedOn, long teacherId,
                                       String teacherName, Instant createdAt, AttachedCard card) {

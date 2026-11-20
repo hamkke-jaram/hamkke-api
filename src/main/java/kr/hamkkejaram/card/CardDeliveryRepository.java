@@ -11,6 +11,17 @@ import java.util.Optional;
 
 public interface CardDeliveryRepository extends JpaRepository<CardDelivery, Long> {
 
+    @Query("""
+            select new kr.hamkkejaram.card.SharedCoachingCard(c.code, c.title, c.body)
+            from CardDelivery d join d.card c
+            where d.childId = :childId and c.active = true
+              and d.deliveredAt >= :start and d.deliveredAt < :end
+            group by c.code, c.title, c.body
+            order by max(d.deliveredAt) desc, c.code
+            """)
+    List<SharedCoachingCard> findMonthlyCoachingCards(@Param("childId") long childId, @Param("start") Instant start,
+                                                     @Param("end") Instant end, Pageable page);
+
     @Query("select d from CardDelivery d join fetch d.card where d.childId = :childId order by d.deliveredAt desc, d.id desc")
     List<CardDelivery> findRecent(@Param("childId") Long childId, Pageable pageable);
 

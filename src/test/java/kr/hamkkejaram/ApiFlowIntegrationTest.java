@@ -112,7 +112,7 @@ class ApiFlowIntegrationTest {
         claims.put("jti", TestReceipts.payload(session).get("jti").asText());
         JsonNode saved = json(mvc.perform(body(auth(post("/api/v1/children/" + childId + "/ai-observations"), token),
                 Map.of("receipt", TestReceipts.sign(claims)))).andExpect(status().isCreated()).andReturn());
-        assertThat(saved.at("/coaching/delivery/card/id").asLong()).isPositive();
+        assertThat(saved.get("coaching").isNull()).isTrue();
         return saved.at("/observation/id").asLong();
     }
 
@@ -433,7 +433,7 @@ class ApiFlowIntegrationTest {
         // AI 관찰 기록(글자만)과 그 기록으로 전달된 카드도 함께 지워져야 한다
         saveAiObservation(parent, parentId, childId);
         assertThat(rows("ai_observations", childId)).isEqualTo(1);
-        assertThat(rows("card_deliveries", childId)).isEqualTo(2);
+        assertThat(rows("card_deliveries", childId)).isEqualTo(1);
 
         mvc.perform(auth(delete("/api/v1/children/" + childId), parent)).andExpect(status().isNoContent());
         mvc.perform(auth(get("/api/v1/children/" + childId), parent)).andExpect(status().isNotFound());

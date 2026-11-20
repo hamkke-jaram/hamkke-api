@@ -2,6 +2,7 @@ package kr.hamkkejaram.user;
 
 import jakarta.persistence.EntityManager;
 import kr.hamkkejaram.aiobs.AiObservation;
+import kr.hamkkejaram.aiobs.AiObservationDtos;
 import kr.hamkkejaram.aiobs.ObservationSource;
 import kr.hamkkejaram.card.CardDelivery;
 import kr.hamkkejaram.child.Child;
@@ -9,6 +10,7 @@ import kr.hamkkejaram.child.ChildRepository;
 import kr.hamkkejaram.common.ApiException;
 import kr.hamkkejaram.common.ErrorCode;
 import kr.hamkkejaram.consent.ConsentRepository;
+import kr.hamkkejaram.note.NoteDtos.AttachedCard;
 import kr.hamkkejaram.note.ChildGoal;
 import kr.hamkkejaram.note.NoteDtos.GoalResponse;
 import kr.hamkkejaram.note.NoteDtos.ObservationResponse;
@@ -121,6 +123,8 @@ public class DataExportService {
                 .forEach(o -> userIds.add(o.getCreatedBy()));
         messages.forEach(m -> userIds.add(m.getAuthorId()));
         Map<Long, String> names = names(userIds);
+        Map<Long, AttachedCard> attachments = deliveries.stream()
+                .collect(Collectors.toMap(CardDelivery::getId, AttachedCard::from));
 
         ShareSetting setting = em.find(ShareSetting.class, childId);
         return new ChildExport(childId, c.getNickname(), c.getBirthYearMonth(), c.getCreatedAt(),
@@ -130,13 +134,16 @@ public class DataExportService {
                 deliveries.stream().map(d -> new CardDeliveryItem(d.getId(), d.getDeliveredAt(), d.getTriedAt(),
                         d.getRecordId(), d.getAiObservationId(), d.getCard().getId(), d.getCard().getTitle())).toList(),
                 goals.stream().map(g -> GoalResponse.from(g, nameOf(names, g.getTeacherId()))).toList(),
-                notes.stream().map(n -> ObservationResponse.from(n, nameOf(names, n.getTeacherId()))).toList(),
-                observations.stream().map(o -> new AiObservationItem(o.getId(), o.getSource(), o.getRecordedAt(),
-                        o.getSummary(), o.childStates(), o.adultResponses(), o.moments(), o.getPeopleCount(),
-                        o.getModelVersion(), o.getPromptVersion(), o.getFrameCount(),
-                        o.getSource() == ObservationSource.INSTITUTION && o.getCreatedBy() != null
-                                ? nameOf(names, o.getCreatedBy()) : null,
-                        o.getCreatedAt())).toList(),
+                notes.stream().map(n -> ObservationResponse.from(n, nameOf(names, n.getTeacherId()),
+                        n.getCardDeliveryId() == null ? null : attachments.get(n.getCardDeliveryId()))).toList(),
+                observations.stream().map(o -> {
+                    String author = o.getSource() == ObservationSource.INSTITUTION && o.getCreatedBy() != null
+                            ? nameOf(names, o.getCreatedBy()) : null;
+                    var item = AiObservationDtos.ObservationResponse.from(o, author, c.getParentId(), false);
+                    return new AiObservationItem(item.id(), item.source(), item.recordedAt(), item.summary(), item.childStates(),
+                            item.adultResponses(), item.moments(), item.peopleCount(), item.modelVersion(), item.promptVersion(),
+                            item.frameCount(), item.authorName(), item.createdAt(), item.reviewStatus(), item.publishedGuidance());
+                }).toList(),
                 messages.stream().map(m -> new MessageItem(m.getId(), m.getAuthorRole(),
                         names.getOrDefault(m.getAuthorId(), m.getAuthorRole() == Role.TEACHER ? TEACHER_FALLBACK : "보호자"),
                         m.getContent(), m.getObservationId(), m.getCreatedAt())).toList());
@@ -148,6 +155,11 @@ public class DataExportService {
                 .setParameter("t", teacherId).getResultList();
         Map<Long, String> nicknames = children.findAllById(links.stream().map(TeacherLink::getChildId).toList())
                 .stream().collect(Collectors.toMap(Child::getId, Child::getNickname));
+        Set<Long> sharedCardChildren = new HashSet<>(em.createQuery(
+                        "select s.childId from ShareSetting s where s.coachingCards = true and exists "
+                                + "(select l.id from TeacherLink l where l.childId = s.childId and l.teacherId = :t)",
+                        Long.class)
+                .setParameter("t", teacherId).getResultList());
         List<ChildGoal> goals = em.createQuery(
                         "select g from ChildGoal g where g.teacherId = :t order by g.createdAt desc, g.id desc",
                         ChildGoal.class)
@@ -165,7 +177,8 @@ public class DataExportService {
                 goals.stream().map(g -> new TeacherGoalItem(g.getId(), g.getChildId(), g.getTitle(),
                         g.getDescription(), g.getStatus(), g.getCreatedAt(), g.getUpdatedAt())).toList(),
                 notes.stream().map(n -> new TeacherNoteItem(n.getId(), n.getChildId(), n.getTitle(), n.getContent(),
-                        n.getObservedOn(), n.getCardDeliveryId(), n.getCreatedAt())).toList(),
+                        n.getObservedOn(), sharedCardChildren.contains(n.getChildId()) ? n.getCardDeliveryId() : null,
+                        n.getCreatedAt())).toList(),
                 messages.stream().map(m -> new TeacherMessageItem(m.getId(), m.getChildId(), m.getContent(),
                         m.getObservationId(), m.getCreatedAt())).toList());
     }

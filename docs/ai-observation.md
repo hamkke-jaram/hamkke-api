@@ -34,7 +34,7 @@
        1) 장면 사진 뽑기: 최대 6장, 긴 변 512px JPEG, 소리 없음
        2) POST /api/v1/children/{id}/ai-sessions        → { token, expiresAt, maxFrames }
        3) POST /ai/v1/analyze  (Bearer token, 사진)      → { observation, receipt, ... }   ← hamkke-ai 서버
-       4) POST /api/v1/children/{id}/ai-observations { receipt }  → 저장 + (가정 기록이면) 카드 1장
+       4) POST /api/v1/children/{id}/ai-observations { receipt }  → 가정 기록은 교사 검토 대기로 저장
 ```
 
 웹은 AI 서버를 같은 출처의 `/ai/` 경로로 부른다(nginx·vite 프록시). `/ai/`만 본문 2MB까지 허용하고 `/api/`는 64KB 그대로다.
@@ -198,7 +198,7 @@ api는 영수증의 서명·`aud`·만료, `cid`가 경로의 아이와 같은�
 
 **관찰 기록**
 - `POST /children/{id}/ai-observations` `{ receipt, recordedAt? }` → `{ observation, coaching }`
-  - 영수증 검증(4장) 후 저장. `src`가 `HOME`이면 카드 1장을 골라 전달(`coaching.delivery`), `INSTITUTION`이면 `coaching`은 `null`.
+  - 영수증 검증(4장) 후 저장. 새 가정 기록은 `PENDING`으로 저장하며, `coaching`은 `null`이다.
   - 중복 `jti`는 409 `DUPLICATE_REQUEST`. 그 영수증으로 만든 기록을 지운 뒤에 다시 보내도 같다(4장).
 - `GET /children/{id}/ai-observations?limit=20` → 목록(최신순)
   - P(own): 전부. T(linked): `INSTITUTION` 기록은 항상, `HOME` 기록은 `aiObservations`가 켜진 경우만.
@@ -206,16 +206,16 @@ api는 영수증의 서명·`aud`·만료, `cid`가 경로의 아이와 같은�
 - 저장 항목: 아이, 작성자, 출처(HOME/INSTITUTION), 기록 시각, summary, 태그 두 종류, moments, peopleCount, 모델·프롬프트 버전, 사진 장수, jti(unique). **사진은 없다.**
 - 쓴 영수증(`ai_used_receipts`, V6): `jti`와 만료 시각만. 관찰 기록이 지워져도 이 행은 만료될 때까지 남는다(아이·사용자·문장은 없다).
 
-**카드 고르기 (가정 기록)**
-- 새 초점 `MetricFocus.HARD_MOMENT`(화면 표시 '힘든 순간 함께하기')와 그 카드 6장 이상을 V5 마이그레이션으로 추가한다(출처·근거 태그 필수, 작성 '함께자람 콘텐츠팀(초안)', 검수 NULL).
-- 규칙: `UPSET_CRYING`·`REFUSING`·`THROWING_OR_HITTING` 중 하나라도 있으면 `HARD_MOMENT` → 없고 `PLAYING_ALONE`·`MOVING_AROUND`가 있으면 `JOINT_PLAY` → `SEEKING_ADULT`가 있으면 `RESPONSE` → 그 밖에는 `GENERAL`. 상황은 `ANY`·`STEADY` 카드에서, 최근 받은 3장은 건너뛴다(기존 규칙과 같음).
+**가정 기록 교사 검토**
+
+연결된 선생님은 보호자가 AI 관찰 공유를 켠 경우 장면별 문장을 검토한다. PC AI는 검토한 상황에 맞는 자료를 찾아 행동 방식과 근거를 제안한다. 교사가 전달할 항목을 골라 게시하면 보호자 목록에 검토 결과가 표시된다. 적합한 근거가 없으면 추천 없이 요약만 전달할 수 있다. 원래 분석 영수증에는 이 추천이 들어가지 않는다. 요청·응답 형식은 [API 문서](api.md#관찰-기록-저장)에 있다.
 
 ## 8. hamkke-web 변경
 
 - **동의 화면**: 아이 홈에서 'AI 관찰 기록 켜기' → 동의 내용(무엇이, 어디로, 언제 지워지는지, 언제든 끌 수 있고 끄면 기록이 지워짐) → 체크 후 켜기. 끄기는 확인 한 번.
 - **촬영 영상**: 기록 화면에서 기기 안 분석이 끝난 뒤, AI 동의가 있으면 같은 영상에서 사진 6장을 뽑아 관찰 기록을 만든다. 실패해도 지표 기록은 남는다.
 - **실시간 카메라**: `/p/children/:id/observe`, `/t/children/:id/observe`. 카메라 고르기(앞·뒤·연결된 카메라), 미리보기, 시작하면 정해진 간격으로 6장을 찍고(기본 60초 동안) 분석. 영상은 녹화·저장하지 않는다. 화면에 '지금 장면 사진을 찍고 있어요' 표시를 계속 보여 준다.
-- **결과**: 요약 문장, 태그 칩, 시각별 메모, (가정 기록이면) 코칭 카드. 'AI가 화면을 보고 적은 기록이에요. 틀릴 수 있어요.' 문구를 붙인다.
+- **결과**: 새 가정 기록은 교사 검토 상태와 게시된 요약·추천 근거를 표시한다. 'AI가 화면을 보고 적은 기록이에요. 틀릴 수 있어요.' 문구를 붙인다.
 - **목록**: 아이 홈과 선생님 화면에 'AI 관찰 기록' 목록(출처 표시: 가정 / 기관), 삭제.
 - **공유 설정**: 두 항목 추가. **개인정보 안내·첫 화면·촬영 안내 문구**를 바뀐 사실대로 고친다('영상은 폰 밖으로 나가지 않아요'는 영상 원본에 대해서만 맞는 말이 됨).
 - 가입 화면의 '어린이집 교사'는 '기관 선생님'으로 넓힌다.

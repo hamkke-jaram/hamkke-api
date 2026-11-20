@@ -124,9 +124,18 @@ public class CoachingService {
         return found.stream().map(DeliveryResponse::from).toList();
     }
 
+    @Transactional(readOnly = true)
+    public DeliveryResponse getDelivery(long childId, long deliveryId) {
+        return DeliveryResponse.from(requireDelivery(childId, deliveryId));
+    }
+
+    private CardDelivery requireDelivery(long childId, long deliveryId) {
+        return deliveries.findByIdAndChildId(deliveryId, childId).orElseThrow(ApiException::notFound);
+    }
+
     @Transactional
     public DeliveryResponse markTried(long childId, long deliveryId) {
-        CardDelivery d = deliveries.findByIdAndChildId(deliveryId, childId).orElseThrow(ApiException::notFound);
+        CardDelivery d = requireDelivery(childId, deliveryId);
         d.markTried(clock.instant());
         return DeliveryResponse.from(d);
     }

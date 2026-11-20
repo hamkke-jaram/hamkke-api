@@ -79,7 +79,25 @@ class CardCodeIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    void aiObservationResponseCarriesTheCardCode() throws Exception {
+    void videoMetricSaveAndRetryProduceNoImmediateCardOrGuidance() throws Exception {
+        String parent = token(signup("PARENT"));
+        long childId = createChild(parent);
+        var request = metrics(Instant.now().minus(1, ChronoUnit.DAYS));
+        request.put("awaitingAiReview", true);
+        String records = path(childId, "/interaction-records");
+        var first = json(mvc.perform(body(auth(post(records), parent), request)).andExpect(status().isCreated()).andReturn());
+        request.remove("awaitingAiReview");
+        var replay = json(mvc.perform(body(auth(post(records), parent), request)).andExpect(status().isOk()).andReturn());
+        assertThat(replay.at("/record/id")).isEqualTo(first.at("/record/id"));
+        assertThat(first.get("coaching")).isEqualTo(replay.get("coaching"));
+        assertThat(replay.at("/coaching/delivery").isNull()).isTrue();
+        assertThat(replay.at("/coaching/guidance").isNull()).isTrue();
+        mvc.perform(auth(get(path(childId, "/card-deliveries")), parent)).andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$").isEmpty());
+    }
+
+    @Test
+    void pendingAiObservationDoesNotDeliverAnyCard() throws Exception {
         JsonNode account = signup("PARENT");
         String parent = token(account);
         long childId = createChild(parent);
@@ -93,14 +111,11 @@ class CardCodeIntegrationTest extends IntegrationTestSupport {
 
         JsonNode saved = json(mvc.perform(body(auth(post(path(childId, "/ai-observations")), parent),
                 Map.of("receipt", TestReceipts.sign(claims)))).andExpect(status().isCreated()).andReturn());
-        assertCarriesCode(saved.at("/coaching/delivery/card"));
+        assertThat(saved.get("coaching").isNull()).isTrue();
 
         JsonNode list = json(mvc.perform(auth(get(path(childId, "/card-deliveries")), parent))
                 .andExpect(status().isOk()).andReturn());
-        assertThat(list.size()).isEqualTo(1);
-        assertCarriesCode(list.get(0).get("card"));
-        assertThat(list.get(0).at("/card/code").asText())
-                .isEqualTo(saved.at("/coaching/delivery/card/code").asText());
+        assertThat(list.size()).isZero();
     }
 
     @Test

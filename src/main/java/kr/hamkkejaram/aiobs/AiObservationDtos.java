@@ -46,15 +46,20 @@ public final class AiObservationDtos {
                                       List<ChildState> childStates, List<AdultResponse> adultResponses,
                                       List<Moment> moments, int peopleCount, String modelVersion,
                                       String promptVersion, int frameCount, String authorName, boolean mine,
-                                      Instant createdAt) {
-        static ObservationResponse from(AiObservation o, String authorName, long viewerId) {
-            return new ObservationResponse(o.getId(), o.getSource(), o.getRecordedAt(), o.getSummary(),
-                    o.childStates(), o.adultResponses(), o.moments(), o.getPeopleCount(), o.getModelVersion(),
-                    o.getPromptVersion(), o.getFrameCount(), authorName,
-                    o.getCreatedBy() != null && o.getCreatedBy() == viewerId, o.getCreatedAt());
+                                      Instant createdAt, AiObservation.ReviewStatus reviewStatus,
+                                      AiReviewDtos.PublishedGuidance publishedGuidance) {
+        public static ObservationResponse from(AiObservation o, String authorName, long viewerId, boolean teacher) {
+            var published = o.publishedGuidance();
+            boolean originalVisible = teacher || o.getReviewStatus() == null;
+            return new ObservationResponse(o.getId(), o.getSource(), o.getRecordedAt(),
+                    originalVisible ? o.getSummary() : published == null ? null : published.summary(),
+                    originalVisible ? o.childStates() : List.of(), originalVisible ? o.adultResponses() : List.of(),
+                    originalVisible ? o.moments() : List.of(), originalVisible ? o.getPeopleCount() : 0, o.getModelVersion(),
+                    o.getPromptVersion(), o.getFrameCount(), authorName, o.getCreatedBy() != null && o.getCreatedBy() == viewerId,
+                    o.getCreatedAt(), o.getReviewStatus(), published);
         }
     }
 
-    /** coaching: 가정 기록이면 카드 1장({@code coaching.delivery}), 기관 기록이면 null. */
+    /** 영상 결과에 대한 대응은 교사가 게시한 publishedGuidance에서 제공한다. */
     public record SaveObservationResponse(ObservationResponse observation, Coaching coaching) {}
 }
