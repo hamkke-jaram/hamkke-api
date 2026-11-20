@@ -92,6 +92,18 @@ public class AiObservation {
     @Column(name = "review_payload", columnDefinition = "TEXT")
     private String reviewPayload;
 
+    /** 선생님용 아이 한 줄(AI가 쓰고 검사를 지나간 것만). 예전 기록과 기관 기록에는 없다. */
+    @Column(name = "child_line", length = 40)
+    private String childLine;
+
+    /** 선생님용 어른(보호자) 한 줄. */
+    @Column(name = "parent_line", length = 40)
+    private String parentLine;
+
+    /** 보호자가 "이 기록은 선생님에게 보내지 않기"를 고른 가정 기록. 선생님 화면 어디에도 나오지 않는다. */
+    @Column(name = "hidden_from_teacher", nullable = false)
+    private boolean hiddenFromTeacher;
+
     protected AiObservation() {}
 
     public ReviewStatus getReviewStatus() { return reviewStatus; }
@@ -129,6 +141,8 @@ public class AiObservation {
         this.adultResponsesJson = write(content.adultResponses().stream().map(Enum::name).toList());
         this.momentsJson = write(content.moments());
         this.peopleCount = content.peopleCount();
+        this.childLine = content.childLine();
+        this.parentLine = content.parentLine();
         this.modelVersion = modelVersion;
         this.promptVersion = promptVersion;
         this.frameCount = frameCount;
@@ -165,6 +179,14 @@ public class AiObservation {
     public String getSummary() { return summary; }
 
     public int getPeopleCount() { return peopleCount; }
+
+    public String getChildLine() { return childLine; }
+
+    public String getParentLine() { return parentLine; }
+
+    public boolean isHiddenFromTeacher() { return hiddenFromTeacher; }
+
+    public void setHiddenFromTeacher(boolean hidden) { this.hiddenFromTeacher = hidden; }
 
     public String getModelVersion() { return modelVersion; }
 

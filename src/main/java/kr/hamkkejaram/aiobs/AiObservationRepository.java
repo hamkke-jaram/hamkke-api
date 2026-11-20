@@ -17,18 +17,25 @@ public interface AiObservationRepository extends JpaRepository<AiObservation, Lo
 
     Optional<AiObservation> findByIdAndChildId(Long id, Long childId);
 
-    /** 기록 시각 최신순. sources에 든 출처의 기록만. */
+    /**
+     * 기록 시각 최신순. sources에 든 출처의 기록만. includeHidden이 false면(선생님이 볼 때) 보호자가 선생님에게
+     * 보내지 않기로 한 기록을 뺀다. 쪽 나누기가 어긋나지 않도록 걸러 낸 뒤가 아니라 질의에서 뺀다.
+     */
     @Query("select o from AiObservation o where o.childId = :childId and o.source in :sources "
+            + "and (:includeHidden = true or o.hiddenFromTeacher = false) "
             + "order by o.recordedAt desc, o.id desc")
     List<AiObservation> findRecent(@Param("childId") Long childId,
-                                   @Param("sources") Collection<ObservationSource> sources, Pageable pageable);
+                                   @Param("sources") Collection<ObservationSource> sources,
+                                   @Param("includeHidden") boolean includeHidden, Pageable pageable);
 
     /** 목록 커서: (recordedAt, id)가 기준 기록보다 앞선(더 오래된) 기록, 같은 최신순. */
     @Query("select o from AiObservation o where o.childId = :childId and o.source in :sources "
+            + "and (:includeHidden = true or o.hiddenFromTeacher = false) "
             + "and (o.recordedAt < :at or (o.recordedAt = :at and o.id < :id)) "
             + "order by o.recordedAt desc, o.id desc")
     List<AiObservation> findOlderThan(@Param("childId") Long childId,
                                       @Param("sources") Collection<ObservationSource> sources,
+                                      @Param("includeHidden") boolean includeHidden,
                                       @Param("at") Instant at, @Param("id") Long id, Pageable pageable);
 
     /** 그 아이의 AI 관찰 기록 전부 삭제(동의 철회). 연결된 카드 전달 이력은 DB의 ON DELETE CASCADE로 함께 지워진다. */
