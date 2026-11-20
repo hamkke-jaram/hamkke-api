@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -108,8 +109,13 @@ class AiObservationFlowIntegrationTest {
 
     private void share(Account parent, long childId, Boolean aiObservations, Boolean institutionCapture)
             throws Exception {
+        share(parent, childId, aiObservations, institutionCapture, false);
+    }
+
+    private void share(Account parent, long childId, Boolean aiObservations, Boolean institutionCapture,
+                       boolean coachingCards) throws Exception {
         Map<String, Object> req = new HashMap<>(Map.of("jointPlay", false, "responseLatency", false,
-                "distress", false, "coachingCards", false));
+                "distress", false, "coachingCards", coachingCards));
         if (aiObservations != null) req.put("aiObservations", aiObservations);
         if (institutionCapture != null) req.put("institutionCapture", institutionCapture);
         mvc.perform(body(auth(put(path(childId, "/share-settings")), parent), req)).andExpect(status().isOk());
@@ -510,7 +516,12 @@ class AiObservationFlowIntegrationTest {
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.ageMonths").isNumber())
                 .andExpect(jsonPath("$.reviewerId").value(teacher.id()))
-                .andExpect(jsonPath("$.observation.moments[0].note").value("아이가 블록을 밀어내요."));
+                .andExpect(jsonPath("$.observation.moments[0].note").value("아이가 블록을 밀어내요."))
+                .andExpect(jsonPath("$.display.observationId").value(observationId))
+                .andExpect(jsonPath("$.display.source").value("HOME"))
+                .andExpect(jsonPath("$.display.responseOptions.status").value("PENDING"))
+                .andExpect(jsonPath("$.display.responseOptions.corpusVersion").hasJsonPath())
+                .andExpect(jsonPath("$.display.responseOptions.items").isEmpty());
         String publish = url + "/publish";
         Map<String,Object> claims = reviewClaims(teacher.id(), childId, observationId);
         Map<String,String> request = Map.of("receipt", sign(claims));
@@ -544,9 +555,73 @@ class AiObservationFlowIntegrationTest {
                 .andExpect(jsonPath("$[0].publishedGuidance.teacherRecommendation").doesNotExist());
         mvc.perform(auth(get("/api/v1/me/export"), parent))
                 .andExpect(jsonPath("$.children[0].aiObservations[0].publishedGuidance.recommendations[0].sourceId").value("source-1"));
+        mvc.perform(auth(get(url), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.display.responseOptions.status").value("PUBLISHED"))
+                .andExpect(jsonPath("$.display.responseOptions.corpusVersion").value("source-test-v1"))
+                .andExpect(jsonPath("$.display.responseOptions.items[0].action")
+                        .value("아이가 고른 놀잇감으로 한 차례를 기다려 주세요."))
+                .andExpect(jsonPath("$.display.responseOptions.items[0].reason").value("아이의 관심을 따라가는 활동이에요."))
+                .andExpect(jsonPath("$.display.responseOptions.items[0].source.id").value("source-1"))
+                .andExpect(jsonPath("$.display.responseOptions.items[0].source.title").value("코칭 자료"))
+                .andExpect(jsonPath("$.display.responseOptions.items[0].source.publisher").value("출판기관"))
+                .andExpect(jsonPath("$.display.responseOptions.items[0].source.section").value("놀이 예시"))
+                .andExpect(jsonPath("$.display.responseOptions.items[0].source.url").value("https://example.org/activity"));
         mvc.perform(auth(delete(path(childId, "/ai-consent")), parent)).andExpect(status().isNoContent());
         mvc.perform(auth(get(url), teacher)).andExpect(status().isNotFound());
         assertThat(observationCount(childId)).isZero();
+    }
+
+    @Test
+    void displayKeepsUnattributedScenesAndShowsOnlyExactSharedCoaching() throws Exception {
+        Account parent = signup("PARENT");
+        Account teacher = signup("TEACHER");
+        long childId = createChild(parent);
+        long siblingId = createChild(parent);
+        agree(parent, childId);
+        link(parent, teacher, childId);
+        share(parent, childId, true, false, true);
+
+        var claims = receiptFor(session(parent, childId));
+        claims.put("obs", obs("블록을 쌓는 장면이에요.", List.of("FOCUSED"), List.of("WAITING"),
+                List.of(moment(2, "아이가 파란 블록을 집어요."), moment(4, "한 사람이 곁에 앉아요."),
+                        moment(6, "어른이 의자에 앉아요."), moment(8, "아이가 블록을 쥐고 어른이 상자를 옮겨요.")), 2));
+        long id = save(parent, childId, claims).at("/observation/id").asLong();
+        long other = save(parent, childId, receiptFor(session(parent, childId))).at("/observation/id").asLong();
+        String url = path(childId, "/ai-observations/" + id + "/review");
+        String teacherPath = "/t/children/" + childId;
+
+        Long cardId = jdbc.queryForObject("SELECT MIN(id) FROM coaching_cards", Long.class);
+        String cardTitle = jdbc.queryForObject("SELECT title FROM coaching_cards WHERE id = ?", String.class, cardId);
+        Timestamp deliveredAt = Timestamp.from(Instant.now());
+        String insert = "INSERT INTO card_deliveries (child_id, card_id, ai_observation_id, delivered_at) VALUES (?, ?, ?, ?)";
+        jdbc.update(insert, childId, cardId, other, deliveredAt);
+        // The database foreign keys permit a mismatched historical row. It must not be shared on this child's review.
+        jdbc.update(insert, siblingId, cardId, id, deliveredAt);
+        JsonNode review = json(mvc.perform(auth(get(url), teacher)).andExpect(status().isOk()).andReturn());
+        JsonNode display = review.get("display");
+        assertThat(display.get("relatedCoaching").isNull()).isTrue();
+        assertThat(display.get("recordedAt")).isEqualTo(review.at("/observation/recordedAt"));
+        assertThat(display.get("scenes").size()).isEqualTo(4);
+        assertThat(display.at("/child/notes").findValuesAsText("note")).containsExactly("아이가 파란 블록을 집어요.");
+        assertThat(display.at("/caregiver/notes").findValuesAsText("note")).containsExactly("어른이 의자에 앉아요.");
+        assertThat(display.at("/caregiver/role").asText()).isEqualTo("ADULT");
+        assertThat(texts(display.at("/child/tags"))).containsExactly("FOCUSED");
+        assertThat(texts(display.at("/caregiver/tags"))).containsExactly("WAITING");
+        assertThat(display.at("/actions/0/href").asText()).isEqualTo(teacherPath + "/story/new");
+        assertThat(display.at("/actions/1/href").asText()).isEqualTo(teacherPath + "/talk?draft=consultation");
+
+        jdbc.update(insert, childId, cardId, id, deliveredAt);
+        Long deliveryId = jdbc.queryForObject("SELECT id FROM card_deliveries WHERE child_id = ? AND ai_observation_id = ?",
+                Long.class, childId, id);
+        mvc.perform(auth(get(url), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.display.relatedCoaching.deliveryId").value(deliveryId))
+                .andExpect(jsonPath("$.display.relatedCoaching.title").value(cardTitle))
+                .andExpect(jsonPath("$.display.relatedCoaching.href").value(teacherPath + "/coaching/" + deliveryId));
+        share(parent, childId, true, false, false);
+        mvc.perform(auth(get(url), teacher)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.display.relatedCoaching").doesNotExist());
+        share(parent, childId, false, false, true);
+        mvc.perform(auth(get(url), teacher)).andExpect(status().isNotFound());
     }
 
     @Test

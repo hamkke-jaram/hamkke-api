@@ -37,6 +37,8 @@ public interface CardDeliveryRepository extends JpaRepository<CardDelivery, Long
 
     Optional<CardDelivery> findByIdAndChildId(Long id, Long childId);
 
+    Optional<CardDelivery> findFirstByChildIdAndAiObservationIdOrderByDeliveredAtDescIdDesc(long childId, long aiObservationId);
+
     /** 카드별 마지막 전달 시각. [cardId, Instant] */
     @Query("select d.card.id, max(d.deliveredAt) from CardDelivery d where d.childId = :childId group by d.card.id")
     List<Object[]> lastDeliveredByCard(@Param("childId") Long childId);

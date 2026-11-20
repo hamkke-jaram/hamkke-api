@@ -392,9 +392,61 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 ```
 
 - 새 가정 기록은 `PENDING`이다. 보호자 목록과 데이터 내려받기에는 검토 전 관찰 문장과 태그를 담지 않는다. 기존 가정 기록과 기관 기록은 `reviewStatus: null`로 표시한다.
-- `GET /children/{id}/ai-observations/{observationId}/review`는 현재 연결된 교사가 해당 아이의 AI 분석 동의와 가정 AI 관찰 공유가 유효할 때 사용할 수 있다. 응답은 `{ reviewerId, status, ageMonths, observation }`이며, 나이는 기록 시점의 월령이다.
+- `GET /children/{id}/ai-observations/{observationId}/review`는 현재 연결된 교사가 해당 아이의 AI 분석 동의와 가정 AI 관찰 공유가 유효할 때 사용할 수 있다. 응답은 `{ reviewerId, status, ageMonths, observation, display }`이며, 나이는 기록 시점의 월령이다.
 - 교사는 PC AI의 `POST /ai/v1/observation-guidance`로 상황을 검토하고 근거를 조회한다. 반환된 영수증은 교사, 아이, 기록, 검토한 요약, 추천, 자료 버전에 묶여 있다.
 - `POST /children/{id}/ai-observations/{observationId}/review/publish`는 `{ receipt, selectedSourceIds?, teacherEdits?, teacherRecommendation? }`를 받는다. `selectedSourceIds`를 생략하면 서명된 추천을 모두 게시하고 빈 배열이면 AI 추천을 게시하지 않는다. `teacherEdits`는 선택한 추천에 대해 `{ sourceId, action, rationale? }`를 항목당 한 번 받는다. `teacherRecommendation`은 교사가 별도로 제안한 `{ action, rationale? }`이다. 조치와 근거는 각각 최대 500자다. 현재 권한을 재확인하고 최초 게시만 허용한다. 같은 교사의 동일한 재전송은 저장된 결과를 반환한다.
 - 게시 후 보호자는 `PUBLISHED`와 `publishedGuidance: { summary, recommendations, corpusVersion, reviewedAt, teacherEdits?, teacherRecommendation? }`를 받는다. `recommendations`에는 서명된 원래의 `observation, action, reason, sourceId, sourceTitle, sourcePublisher, sourceUrl, sourceSection`이 담긴다. 교사가 수정한 조치와 이유는 `teacherEdits`, 직접 추가한 조치와 이유는 `teacherRecommendation`에 담긴다.
 
 - 목록(`GET`)의 항목은 위 `observation`과 같은 모양의 배열이다.
+
+#### 교사 관찰 카드 `display`
+
+교사 검토 응답과 `POST /ai/v1/observation-guidance` 응답의 화면용 JSON이다. `recordedAt`은 ISO 8601 시각이다. 화면에서 서비스 날짜에 맞춰 표시한다. `scenes`는 원래 장면 메모이며 `child`와 `caregiver`에는 주체가 명확한 기존 메모와 허용된 태그 코드가 들어간다. 해당 내용이 없으면 배열이 비어 있다. `caregiver.role`은 기본적으로 `ADULT`이며, 보호자로 명시된 메모만 있으면 `CAREGIVER`이다. `relatedCoaching`은 같은 관찰 기록에 연결된 카드가 공유된 경우에만 채운다.
+
+`responseOptions.status`는 검토 대기 조회에서 `PENDING`, 근거 검색 응답에서 `PREVIEW`, 검토 게시 뒤 조회에서 `PUBLISHED`이다. 임시 제안과 게시된 AI 추천은 같은 화면 필드를 사용한다. 일치하는 근거가 없으면 `items`는 빈 배열이다. 게시 요청에서 서명 확인에 쓰는 `receipt`와 교사가 입력한 조치·판단 근거는 기존 필드를 사용한다. 상담 동선은 보호자 대화창에 초안을 연다. 실제 전송은 교사가 확인한 뒤 누른다.
+
+아래는 근거 검색 응답의 `display` 예다. 관찰 ID와 장면은 예시이며 대응 문구와 출처는 근거 자료 집합에서 가져왔다.
+
+```json
+{
+  "observationId": 12,
+  "recordedAt": "2026-11-19T02:05:00Z",
+  "source": "HOME",
+  "peopleCount": 2,
+  "summary": "아이가 내민 장난감을 밀어내며 고개를 가로저어요.",
+  "scenes": [
+    { "t": 2, "note": "아이가 내민 장난감을 밀어내며 고개를 가로저어요." },
+    { "t": 4, "note": "어른이 장난감을 곁에 두고 기다려요." }
+  ],
+  "child": {
+    "notes": [{ "t": 2, "note": "아이가 내민 장난감을 밀어내며 고개를 가로저어요." }],
+    "tags": ["REFUSING"]
+  },
+  "caregiver": {
+    "notes": [{ "t": 4, "note": "어른이 장난감을 곁에 두고 기다려요." }],
+    "tags": ["WAITING"],
+    "role": "ADULT"
+  },
+  "responseOptions": {
+    "status": "PREVIEW",
+    "corpusVersion": "care-2026-11-20.2",
+    "items": [{
+      "observation": "아이가 내민 장난감을 밀어내며 고개를 가로저어요.",
+      "action": "아이가 내민 물건을 밀어내며 고개를 저으면 잠깐 멈추세요. 물건을 곁에 두고 아이가 다시 손짓하거나 다른 것을 고르는지 살펴보세요.",
+      "reason": "동작의 이유를 바로 단정하지 않고 멈추면 아이가 자기 뜻을 이어서 표현할 여유가 생겨요.",
+      "source": {
+        "id": "MOHW-REFUSAL-LISTEN",
+        "publisher": "보건복지부",
+        "title": "긍정 양육 129원칙",
+        "section": "참고1 · 긍정 양육의 실천방법 「경청하고 공감하기」 (PDF 3쪽)",
+        "url": "https://www.mohw.go.kr/upload/140/202112/1639703984207_20211217101944.pdf#page=3"
+      }
+    }]
+  },
+  "relatedCoaching": null,
+  "actions": [
+    { "type": "WRITE_PARENT_FEEDBACK", "label": "보호자에게 피드백 쓰기", "href": "/t/children/7/story/new" },
+    { "type": "REQUEST_CONSULTATION", "label": "상담 요청하기", "href": "/t/children/7/talk?draft=consultation" }
+  ]
+}
+```

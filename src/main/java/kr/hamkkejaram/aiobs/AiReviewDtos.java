@@ -41,7 +41,7 @@ public final class AiReviewDtos {
     }
 
     public record TeacherReview(long reviewerId, AiObservation.ReviewStatus status, int ageMonths,
-                                AiObservationDtos.ObservationResponse observation) {}
+                                AiObservationDtos.ObservationResponse observation, TeacherReviewDisplay display) {}
 
     /** Omitted IDs select all signed recommendations. Teacher text is saved separately from signed evidence. */
     public record PublishRequest(@NotBlank @Size(max = 48000) String receipt,

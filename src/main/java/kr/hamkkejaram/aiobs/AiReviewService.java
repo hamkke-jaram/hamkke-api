@@ -6,6 +6,7 @@ import kr.hamkkejaram.aiobs.AiReviewDtos.PublishedGuidance;
 import kr.hamkkejaram.aiobs.AiReviewDtos.Recommendation;
 import kr.hamkkejaram.aiobs.AiReviewDtos.TeacherEdit;
 import kr.hamkkejaram.aiobs.AiReviewDtos.TeacherReview;
+import kr.hamkkejaram.card.CardDeliveryRepository;
 import kr.hamkkejaram.child.Child;
 import kr.hamkkejaram.child.ChildAccess;
 import kr.hamkkejaram.common.ApiException;
@@ -35,23 +36,29 @@ public class AiReviewService {
     private final ShareSettingRepository sharing;
     private final AiConsentService consent;
     private final AiReceiptVerifier receipts;
+    private final CardDeliveryRepository deliveries;
     private final Clock clock;
 
     public AiReviewService(AiObservationRepository observations, ChildAccess access, ShareSettingRepository sharing,
-                           AiConsentService consent, AiReceiptVerifier receipts, Clock clock) {
+                           AiConsentService consent, AiReceiptVerifier receipts, CardDeliveryRepository deliveries,
+                           Clock clock) {
         this.observations = observations;
         this.access = access;
         this.sharing = sharing;
         this.consent = consent;
         this.receipts = receipts;
+        this.deliveries = deliveries;
         this.clock = clock;
     }
 
-    private Child requireReviewer(AuthUser user, long childId) {
+    private record ReviewAccess(Child child, ShareSetting settings) {}
+
+    private ReviewAccess requireReviewer(AuthUser user, long childId) {
         Child child = access.requireLinkedTeacher(user, childId);
-        if (!sharing.findById(childId).map(ShareSetting::isAiObservations).orElse(false)
-                || !consent.hasActiveConsent(childId)) throw ApiException.notFound();
-        return child;
+        ShareSetting settings = sharing.findById(childId).filter(ShareSetting::isAiObservations)
+                .orElseThrow(ApiException::notFound);
+        if (!consent.hasActiveConsent(childId)) throw ApiException.notFound();
+        return new ReviewAccess(child, settings);
     }
 
     private AiObservation reviewable(long childId, long id) {
@@ -62,10 +69,18 @@ public class AiReviewService {
 
     @Transactional(readOnly = true)
     public TeacherReview review(AuthUser user, long childId, long id) {
-        Child child = requireReviewer(user, childId);
+        ReviewAccess reviewer = requireReviewer(user, childId);
         AiObservation o = reviewable(childId, id);
-        int age = child.ageMonths(o.getRecordedAt().atZone(TimeConfig.SERVICE_ZONE).toLocalDate());
-        return new TeacherReview(user.id(), o.getReviewStatus(), age, ObservationResponse.from(o, null, user.id(), true));
+        int age = reviewer.child().ageMonths(o.getRecordedAt().atZone(TimeConfig.SERVICE_ZONE).toLocalDate());
+        ObservationResponse observation = ObservationResponse.from(o, null, user.id(), true);
+        TeacherReviewDisplay.RelatedCoaching coaching = reviewer.settings().isCoachingCards()
+                ? deliveries.findFirstByChildIdAndAiObservationIdOrderByDeliveredAtDescIdDesc(childId, id)
+                        .map(d -> new TeacherReviewDisplay.RelatedCoaching(d.getId(), d.getCard().getTitle(),
+                                "/t/children/" + childId + "/coaching/" + d.getId()))
+                        .orElse(null)
+                : null;
+        return new TeacherReview(user.id(), o.getReviewStatus(), age, observation,
+                TeacherReviewDisplay.from(childId, observation, coaching));
     }
 
     @Transactional
