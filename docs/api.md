@@ -267,6 +267,24 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
   "teacherName": "김선생", "createdAt": "..." }
 ```
 
+### 8-1. 보호자·선생님 이야기 (TLK)
+
+보호자와 연결된 선생님이 아이에 대해 주고받는 짧은 이야기. 관찰 메모에 단 답이면 `observationId`를 함께 보낸다.
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/children/{id}/messages?afterId?&limit=50` | P(own), T(linked) | 오래된 순. `afterId`가 없으면 최근 `limit`건, 있으면 그보다 새 것만(화면이 몇 초마다 새 것만 받아 간다). `limit` 1~100 |
+| POST | `/children/{id}/messages` | P(own), T(linked) | `{ content(1~500), observationId? }` → 201. `observationId`는 이 아이의 관찰 메모여야 한다(아니면 404). 보낸 사람은 자기 글까지 읽은 것으로 표시된다 |
+| POST | `/children/{id}/messages/read` | P(own), T(linked) | `{ lastReadId }` → `{ unread, latestId }`. 읽은 자리는 앞으로만 가고, 가장 최근 이야기 id를 넘지 않는다 |
+| GET | `/children/{id}/messages/unread` | P(own), T(linked) | `{ unread, latestId }` — 남이 쓴 것 중 안 읽은 수(배지) |
+
+연결되지 않은 사람·연결을 끊은 선생님은 404(TCH-07과 같다). 끊은 선생님이 쓴 이야기는 보호자에게 남는다. 아이를 지우거나 작성자가 탈퇴하면 함께 지워지고, 내 데이터 내려받기(ACC-11)에 들어간다(보호자: 아이별 `messages`, 선생님: `teacher.messages`).
+
+```json
+{ "id": 21, "content": "감사해요! 집에서도 해 볼게요.", "authorRole": "PARENT", "authorName": "하늘맘",
+  "mine": true, "observationId": 5, "createdAt": "..." }
+```
+
 ## 9. AI 관찰 기록
 
 약속 전체(토큰·영수증 클레임, 관찰 기록 객체, AI 서버 API)는 **[ai-observation.md](ai-observation.md)**. 흐름:

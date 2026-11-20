@@ -36,7 +36,11 @@ public final class DataExportDtos {
                               ShareSettingsResponse shareSettings, List<LinkedTeacher> linkedTeachers,
                               List<RecordResponse> interactionRecords, List<CardDeliveryItem> cardDeliveries,
                               List<GoalResponse> goals, List<ObservationResponse> observationNotes,
-                              List<AiObservationItem> aiObservations) {}
+                              List<AiObservationItem> aiObservations, List<MessageItem> messages) {}
+
+    /** 보호자·선생님이 이 아이에 대해 주고받은 이야기(TLK). */
+    public record MessageItem(long id, Role authorRole, String authorName, String content, Long observationId,
+                              Instant createdAt) {}
 
     public record LinkedTeacher(String displayName, Instant linkedAt) {}
 
@@ -51,7 +55,10 @@ public final class DataExportDtos {
 
     /** 교사: 지금 연결된 아이, 그리고 본인이 쓴 목표·관찰 메모(연결이 끊긴 아이의 것도 남아 있으면 담긴다). */
     public record TeacherExport(List<TeacherLinkItem> links, List<TeacherGoalItem> goals,
-                                List<TeacherNoteItem> observationNotes) {}
+                                List<TeacherNoteItem> observationNotes, List<TeacherMessageItem> messages) {}
+
+    /** 선생님이 쓴 이야기(TLK). */
+    public record TeacherMessageItem(long id, long childId, String content, Long observationId, Instant createdAt) {}
 
     public record TeacherLinkItem(long childId, String childNickname, Instant linkedAt) {}
 

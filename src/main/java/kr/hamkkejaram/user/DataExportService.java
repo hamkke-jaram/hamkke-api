@@ -13,6 +13,7 @@ import kr.hamkkejaram.note.ChildGoal;
 import kr.hamkkejaram.note.NoteDtos.GoalResponse;
 import kr.hamkkejaram.note.NoteDtos.ObservationResponse;
 import kr.hamkkejaram.note.ObservationNote;
+import kr.hamkkejaram.talk.ChildMessage;
 import kr.hamkkejaram.record.InteractionRecord;
 import kr.hamkkejaram.record.RecordDtos.RecordResponse;
 import kr.hamkkejaram.share.ShareDtos.ShareSettingsResponse;
@@ -24,9 +25,11 @@ import kr.hamkkejaram.user.DataExportDtos.CardDeliveryItem;
 import kr.hamkkejaram.user.DataExportDtos.ChildExport;
 import kr.hamkkejaram.user.DataExportDtos.DataExport;
 import kr.hamkkejaram.user.DataExportDtos.LinkedTeacher;
+import kr.hamkkejaram.user.DataExportDtos.MessageItem;
 import kr.hamkkejaram.user.DataExportDtos.TeacherExport;
 import kr.hamkkejaram.user.DataExportDtos.TeacherGoalItem;
 import kr.hamkkejaram.user.DataExportDtos.TeacherLinkItem;
+import kr.hamkkejaram.user.DataExportDtos.TeacherMessageItem;
 import kr.hamkkejaram.user.DataExportDtos.TeacherNoteItem;
 import kr.hamkkejaram.user.MeController.ConsentResponse;
 import org.springframework.stereotype.Service;
@@ -105,6 +108,9 @@ public class DataExportService {
                         "select o from AiObservation o where o.childId = :c order by o.recordedAt desc, o.id desc",
                         AiObservation.class)
                 .setParameter("c", childId).getResultList();
+        List<ChildMessage> messages = em.createQuery(
+                        "select m from ChildMessage m where m.childId = :c order by m.id asc", ChildMessage.class)
+                .setParameter("c", childId).getResultList();
 
         Set<Long> userIds = new HashSet<>();
         links.forEach(l -> userIds.add(l.getTeacherId()));
@@ -112,6 +118,7 @@ public class DataExportService {
         notes.forEach(n -> userIds.add(n.getTeacherId()));
         observations.stream().filter(o -> o.getSource() == ObservationSource.INSTITUTION && o.getCreatedBy() != null)
                 .forEach(o -> userIds.add(o.getCreatedBy()));
+        messages.forEach(m -> userIds.add(m.getAuthorId()));
         Map<Long, String> names = names(userIds);
 
         ShareSetting setting = em.find(ShareSetting.class, childId);
@@ -128,7 +135,10 @@ public class DataExportService {
                         o.getModelVersion(), o.getPromptVersion(), o.getFrameCount(),
                         o.getSource() == ObservationSource.INSTITUTION && o.getCreatedBy() != null
                                 ? nameOf(names, o.getCreatedBy()) : null,
-                        o.getCreatedAt())).toList());
+                        o.getCreatedAt())).toList(),
+                messages.stream().map(m -> new MessageItem(m.getId(), m.getAuthorRole(),
+                        names.getOrDefault(m.getAuthorId(), m.getAuthorRole() == Role.TEACHER ? TEACHER_FALLBACK : "보호자"),
+                        m.getContent(), m.getObservationId(), m.getCreatedAt())).toList());
     }
 
     private TeacherExport teacherExport(long teacherId) {
@@ -145,13 +155,18 @@ public class DataExportService {
                         "select n from ObservationNote n where n.teacherId = :t order by n.observedOn desc, n.id desc",
                         ObservationNote.class)
                 .setParameter("t", teacherId).getResultList();
+        List<ChildMessage> messages = em.createQuery(
+                        "select m from ChildMessage m where m.authorId = :t order by m.id asc", ChildMessage.class)
+                .setParameter("t", teacherId).getResultList();
         return new TeacherExport(
                 links.stream().map(l -> new TeacherLinkItem(l.getChildId(),
                         nicknames.get(l.getChildId()), l.getLinkedAt())).toList(),
                 goals.stream().map(g -> new TeacherGoalItem(g.getId(), g.getChildId(), g.getTitle(),
                         g.getDescription(), g.getStatus(), g.getCreatedAt(), g.getUpdatedAt())).toList(),
                 notes.stream().map(n -> new TeacherNoteItem(n.getId(), n.getChildId(), n.getContent(),
-                        n.getObservedOn(), n.getCreatedAt())).toList());
+                        n.getObservedOn(), n.getCreatedAt())).toList(),
+                messages.stream().map(m -> new TeacherMessageItem(m.getId(), m.getChildId(), m.getContent(),
+                        m.getObservationId(), m.getCreatedAt())).toList());
     }
 
     private Map<Long, String> names(Collection<Long> ids) {
