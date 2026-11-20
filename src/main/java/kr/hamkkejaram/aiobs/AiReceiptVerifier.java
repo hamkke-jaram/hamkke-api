@@ -121,7 +121,8 @@ public class AiReceiptVerifier {
         ObservationContent content = ObservationContentParser.parse(c.get("obs"));
         String modelVersion = text(c.get("mv"), MAX_MODEL_VERSION_CHARS, "mv");
         String promptVersion = text(c.get("pv"), MAX_PROMPT_VERSION_CHARS, "pv");
-        int frameCount = ObservationContentParser.intInRange(c.get("fc"), 1, settings.maxFrames(), "fc");
+        // 서명한 AI 서버가 토큰의 mf를 검증한 뒤 실제 처리한 사진 수를 fc로 돌려준다.
+        int frameCount = ObservationContentParser.intInRange(c.get("fc"), 1, settings.frameLimit(source), "fc");
 
         return new Verified(userId, childId, source, jti.toLowerCase(Locale.ROOT), content, modelVersion,
                 promptVersion, frameCount, c.getExpiration().toInstant());

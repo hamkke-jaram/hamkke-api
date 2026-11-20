@@ -37,7 +37,7 @@ public class AiConsentService {
     private final AiObservationRepository observations;
     private final ShareSettingRepository shareSettings;
     private final AiSettings settings;
-    private final String currentVersion;
+    private final AppProperties.Policy policy;
     private final Clock clock;
 
     public AiConsentService(ChildAccess access, ConsentRepository consents, AiObservationRepository observations,
@@ -48,17 +48,21 @@ public class AiConsentService {
         this.observations = observations;
         this.shareSettings = shareSettings;
         this.settings = settings;
-        this.currentVersion = props.policy().aiAnalysisVersion();
+        this.policy = props.policy();
         this.clock = clock;
     }
 
     /**
-     * 지금 유효한 동의가 있는지: 철회되지 않았고, 현재 동의 문서 버전에 대한 것.
-     * 문서 버전이 바뀌면 예전 버전의 동의로는 사진을 보내지 않는다(다시 동의를 받아야 한다).
+     * 지금 유효한 동의가 있는지 확인한다. v2로 전환할 때 기존 v1은 6장까지만 유효하다.
      */
     @Transactional(readOnly = true)
     public boolean hasActiveConsent(long childId) {
-        return latestActive(childId).map(c -> currentVersion.equals(c.getVersion())).orElse(false);
+        return activeFrameLimit(childId) > 0;
+    }
+
+    @Transactional(readOnly = true)
+    public int activeFrameLimit(long childId) {
+        return latestActive(childId).map(c -> policy.activeAiFrameLimit(c.getVersion())).orElse(0);
     }
 
     @Transactional(readOnly = true)
@@ -69,9 +73,13 @@ public class AiConsentService {
 
     @Transactional
     public AiConsentResponse agree(AuthUser user, long childId, AiConsentRequest req) {
+        access.lockChild(childId);
         access.requireOwner(user, childId);
         settings.requireEnabled(); // 쓸 수 없는 기능에 대한 동의는 받지 않는다
-        if (!currentVersion.equals(req.version())) {
+        String currentVersion = policy.aiAnalysisVersion();
+        int currentFrameLimit = policy.aiAnalysisMaxFrames();
+        if (!currentVersion.equals(req.version()) || (currentFrameLimit > AppProperties.Policy.BASE_AI_FRAMES
+                && !req.acknowledgesFrameLimit(currentFrameLimit))) {
             throw new ApiException(ErrorCode.AI_CONSENT_VERSION_MISMATCH);
         }
         // DB(DATETIME(6))와 같은 마이크로초 단위로 맞춘다: 방금 한 응답과 다시 조회한 응답의 시각이 같아야 한다.
@@ -114,6 +122,7 @@ public class AiConsentService {
     }
 
     private AiConsentResponse response(Consent c) {
-        return new AiConsentResponse(currentVersion.equals(c.getVersion()), c.getVersion(), c.getAgreedAt());
+        int maxFrames = policy.activeAiFrameLimit(c.getVersion());
+        return new AiConsentResponse(maxFrames > 0, c.getVersion(), c.getAgreedAt(), maxFrames);
     }
 }

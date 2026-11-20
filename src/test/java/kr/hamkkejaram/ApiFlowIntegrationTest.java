@@ -105,7 +105,7 @@ class ApiFlowIntegrationTest {
     /** AI 동의 → 분석 토큰 → (AI 서버 역할로 서명한) 영수증 저장. 저장된 관찰 기록 id를 돌려준다. */
     private long saveAiObservation(String token, long userId, long childId) throws Exception {
         mvc.perform(body(auth(put("/api/v1/children/" + childId + "/ai-consent"), token),
-                Map.of("agreed", true, "version", V))).andExpect(status().isOk());
+                TestReceipts.aiConsent())).andExpect(status().isOk());
         String session = json(mvc.perform(auth(post("/api/v1/children/" + childId + "/ai-sessions"), token))
                 .andExpect(status().isCreated()).andReturn()).get("token").asText();
         Map<String, Object> claims = TestReceipts.claims(userId, childId, "HOME");
@@ -129,7 +129,7 @@ class ApiFlowIntegrationTest {
         mvc.perform(get("/api/v1/policies")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.disclaimer").value(org.hamcrest.Matchers.containsString("의료기기가 아니며")))
                 .andExpect(jsonPath("$.guardianVersion").value(V))
-                .andExpect(jsonPath("$.aiAnalysisVersion").value(V))
+                .andExpect(jsonPath("$.aiAnalysisVersion").value(TestReceipts.AI_CONSENT_VERSION))
                 .andExpect(jsonPath("$.aiObservationEnabled").value(true));
         mvc.perform(get("/api/v1/children")).andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));

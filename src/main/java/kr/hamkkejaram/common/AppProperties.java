@@ -26,7 +26,23 @@ public record AppProperties(@Valid @NotNull Jwt jwt,
                       @NotNull Duration accessTtl, @NotNull Duration refreshTtl) {}
 
     public record Policy(@NotBlank String termsVersion, @NotBlank String privacyVersion,
-                         @NotBlank String guardianVersion, @NotBlank String aiAnalysisVersion) {}
+                         @NotBlank String guardianVersion, @NotBlank String aiAnalysisVersion) {
+        public static final int BASE_AI_FRAMES = 6;
+        public static final int MAX_AI_FRAMES = 24;
+        private static final String LEGACY_AI_VERSION = "2026-11-v1";
+        private static final String EXTENDED_AI_VERSION = "2026-11-v2";
+
+        public int aiAnalysisMaxFrames() {
+            return EXTENDED_AI_VERSION.equals(aiAnalysisVersion) ? MAX_AI_FRAMES : BASE_AI_FRAMES;
+        }
+
+        public int activeAiFrameLimit(String consentVersion) {
+            if (aiAnalysisVersion.equals(consentVersion)) return aiAnalysisMaxFrames();
+            // v2 adds optional capacity. It does not withdraw the permission granted under v1.
+            return EXTENDED_AI_VERSION.equals(aiAnalysisVersion) && LEGACY_AI_VERSION.equals(consentVersion)
+                    ? BASE_AI_FRAMES : 0;
+        }
+    }
 
     /**
      * IP당 분당 요청 한도는 용도별로 따로 센다(같은 IP를 쓰는 여러 사람이 한 통을 나눠 쓰지 않게):
@@ -56,9 +72,9 @@ public record AppProperties(@Valid @NotNull Jwt jwt,
     /**
      * AI 관찰 기록(docs/ai-observation.md). sharedSecret은 hamkke-ai 서버와 나눠 쓰는 HS256 키다.
      * 켜져 있을 때의 길이·중복 검사는 {@code aiobs.AiSettings}가 기동 시점에 한다(꺼져 있으면 비워 둘 수 있다).
-     * maxFrames는 한 번에 보내는 장면 사진 수의 상한(계약상 최대 6장).
+     * maxFrames는 한 번에 보내는 장면 사진 수의 설정 상한이다. 실제 한도는 분석 토큰마다 정한다.
      */
-    public record Ai(boolean enabled, String sharedSecret, @Min(1) @Max(6) int maxFrames,
+    public record Ai(boolean enabled, String sharedSecret, @Min(1) @Max(Policy.MAX_AI_FRAMES) int maxFrames,
                      @NotNull Duration sessionTtl) {}
 
     public List<String> allowedOrigins() {

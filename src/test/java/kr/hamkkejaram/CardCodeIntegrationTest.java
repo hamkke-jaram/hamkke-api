@@ -102,7 +102,7 @@ class CardCodeIntegrationTest extends IntegrationTestSupport {
         String parent = token(account);
         long childId = createChild(parent);
 
-        mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent), Map.of("agreed", true, "version", V)))
+        mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent), TestReceipts.aiConsent()))
                 .andExpect(status().isOk());
         String session = json(mvc.perform(auth(post(path(childId, "/ai-sessions")), parent))
                 .andExpect(status().isCreated()).andReturn()).get("token").asText();

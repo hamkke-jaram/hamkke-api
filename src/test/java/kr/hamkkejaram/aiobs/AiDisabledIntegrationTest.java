@@ -75,7 +75,7 @@ class AiDisabledIntegrationTest {
     void policiesSayTheFeatureIsOff() throws Exception {
         mvc.perform(get("/api/v1/policies")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.aiObservationEnabled").value(false))
-                .andExpect(jsonPath("$.aiAnalysisVersion").value(V));
+                .andExpect(jsonPath("$.aiAnalysisVersion").value(TestReceipts.AI_CONSENT_VERSION));
     }
 
     @Test
@@ -87,7 +87,7 @@ class AiDisabledIntegrationTest {
         String base = "/api/v1/children/" + childId;
 
         // 동의를 받지 않는다(쓸 수 없는 기능), 토큰도 영수증도 받지 않는다
-        mvc.perform(body(auth(put(base + "/ai-consent"), t), Map.of("agreed", true, "version", V)))
+        mvc.perform(body(auth(put(base + "/ai-consent"), t), TestReceipts.aiConsent()))
                 .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("AI_UNAVAILABLE"));
         mvc.perform(auth(post(base + "/ai-sessions"), t))
                 .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("AI_UNAVAILABLE"));

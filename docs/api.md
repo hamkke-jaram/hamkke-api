@@ -321,14 +321,14 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 
 ```
 1) POST /children/{id}/ai-sessions            → 분석 토큰
-2) POST /ai/v1/analyze (AI 서버, Bearer 분석 토큰, 장면 사진 ≤6장)  → { observation, receipt, ... }
+2) POST /ai/v1/analyze (AI 서버, Bearer 분석 토큰, 장면 사진 ≤ maxFrames)  → { observation, receipt, ... }
 3) POST /children/{id}/ai-observations { receipt }  → 가정 기록은 교사 검토 대기로 저장
 ```
 
 | 메서드 | 경로 | 권한 | 설명 |
 |---|---|---|---|
-| GET | `/children/{id}/ai-consent` | P(own) | 아이별 AI 관찰 기록 동의 상태 `{ agreed, version, agreedAt }` |
-| PUT | `/children/{id}/ai-consent` | P(own) | `{ agreed: true, version }` → 동의 기록 → `{ agreed, version, agreedAt }`. `version`이 `/policies`의 `aiAnalysisVersion`과 다르면 422 `AI_CONSENT_VERSION_MISMATCH`, `agreed`가 true가 아니면 400. 이미 동의했으면 처음 시각 그대로. AI 기능이 꺼져 있으면 503 `AI_UNAVAILABLE` |
+| GET | `/children/{id}/ai-consent` | P(own) | 아이별 AI 관찰 기록 동의 상태 `{ agreed, version, agreedAt, maxFrames }` |
+| PUT | `/children/{id}/ai-consent` | P(own) | `{ agreed: true, version, maxFrames: 24 }` → 동의 기록 → `{ agreed, version, agreedAt, maxFrames }`. 버전과 `maxFrames`가 `/policies`의 현재 AI 동의 문서와 일치해야 한다. 불일치나 장수 확인 누락은 422 `AI_CONSENT_VERSION_MISMATCH`, `agreed`가 true가 아니면 400. 같은 버전에 이미 동의했으면 처음 시각을 그대로 반환한다. AI 기능이 꺼져 있으면 503 `AI_UNAVAILABLE` |
 | DELETE | `/children/{id}/ai-consent` | P(own) | 철회 → 204. **그 아이의 AI 관찰 기록(가정·기관)과 그 기록으로 받은 카드 이력을 모두 지우고**, 공유 설정의 `aiObservations`·`institutionCapture`를 끈다. 여러 번 불러도 204 |
 | POST | `/children/{id}/ai-sessions` | P(own), T(linked) | 분석 토큰 발급 → 201 `{ token, expiresAt, maxFrames }`. 본문 없음. 아래 "분석 토큰" 참고 |
 | POST | `/children/{id}/ai-observations` | P(own), T(linked) | `{ receipt, recordedAt? }` → 201 `{ observation, coaching }`. 아래 "관찰 기록 저장" 참고 |
@@ -337,12 +337,12 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 
 ```json
 // GET /children/7/ai-consent
-{ "agreed": true, "version": "2026-11-v1", "agreedAt": "2026-11-13T02:10:00Z" }
+{ "agreed": true, "version": "2026-11-v1", "agreedAt": "2026-11-13T02:10:00Z", "maxFrames": 6 }
 // 동의한 적이 없거나 철회했으면
-{ "agreed": false, "version": null, "agreedAt": null }
+{ "agreed": false, "version": null, "agreedAt": null, "maxFrames": 0 }
 ```
 
-`agreed`는 **지금 유효한 동의**가 있는지다: 철회되지 않았고 현재 동의 문서 버전에 대한 것. 동의 문서 버전이 바뀌면 예전 동의는 `agreed: false`, `version: "<예전 버전>"`으로 보이고, 다시 동의하기 전까지 분석 토큰이 발급되지 않는다.
+`agreed`는 현재 유효한 동의가 있는지 나타낸다. 개정 문서 `2026-11-v2`에 동의하면 가정 영상에 최대 24장을 쓸 수 있다. `2026-11-v1` 동의가 이미 있으면 최대 6장의 범위로 계속 쓸 수 있다. 그 밖의 이전 버전 동의는 다시 받기 전까지 `agreed: false`, `maxFrames: 0`이다.
 
 ### 분석 토큰
 
@@ -353,12 +353,13 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 
 - 사용자당 시간당 20회까지(넘으면 429 `TOO_MANY_ATTEMPTS`). AI 기능이 꺼져 있으면 503 `AI_UNAVAILABLE`.
 - 토큰은 HS256 JWT이며 유효 10분, 한 번의 분석용이다. 사용자 로그인 토큰과 다른 비밀로 서명한다. 사진·문장은 담기지 않는다.
+- 가정 분석은 유효한 AI 동의가 v1이면 최대 6장, v2이면 최대 24장이다. 기관 분석은 최대 6장이다. 서버 설정 한도가 더 낮으면 그 값을 적용한다. 응답의 `maxFrames`와 토큰의 서명된 `mf`는 같은 값이다.
 
 ```json
 // POST /children/7/ai-sessions → 201
 { "token": "eyJhbGciOiJIUzI1NiJ9...", "expiresAt": "2026-11-13T02:20:00Z", "maxFrames": 6 }
 // 토큰 본문(클레임)
-{ "iss": "hamkke-api", "aud": "hamkke-ai", "sub": "11", "cid": 7, "src": "HOME",
+{ "iss": "hamkke-api", "aud": "hamkke-ai", "sub": "11", "cid": 7, "src": "HOME", "mf": 6,
   "jti": "0f8fad5b-d9cb-469f-a165-70867728950e", "iat": 1794535800, "exp": 1794536400 }
 ```
 
@@ -372,7 +373,7 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 
 1. 서명(공유 비밀, HS256만), 발급자 `hamkke-ai`, 대상 `hamkke-api`, 만료(`exp`·`iat` 필수, 유효 시간 15분 이하, 서버 시계 차이 60초 허용)
 2. `cid` = 경로의 아이, `sub` = 요청한 사용자, `src` = 요청한 사람의 역할(보호자 `HOME`, 선생님 `INSTITUTION`), `jti`는 UUID
-3. `obs`([ai-observation.md 6장](ai-observation.md#6-관찰-기록-객체-obs)): 태그는 목록의 값만 0~3개, `summary` 300자 이하, `moments` 0~4개(`note` 120자 이하, `t` 0~86400초), `peopleCount` 0~3. `mv`(100자 이하)·`pv`(40자 이하)·`fc`(1~6)
+3. `obs`([ai-observation.md 6장](ai-observation.md#6-관찰-기록-객체-obs)): 태그는 목록의 값만 0~3개, `summary` 300자 이하, `moments` 0~4개(`note` 120자 이하, `t` 0~86400초), `peopleCount` 0~3. `mv`(100자 이하)·`pv`(40자 이하)·`fc`(실제 분석한 장수, 가정 1~24, 기관 1~6이며 둘 다 서버 설정 한도 이하)
 4. 문장 검사를 한 번 더 한다: 걸린 `summary`는 `null`로, 걸린 `moment`는 빼고 저장한다(이 경우는 거절이 아니다). 그 뒤 남길 것이 하나도 없으면 거절한다
 
 그 밖의 응답: 같은 `jti`를 다시 쓰면 409 `DUPLICATE_REQUEST`(그 기록을 지운 뒤에 다시 보내도 같다). 저장 시점에 분석 토큰 발급 조건(동의·기관 촬영 허용)을 다시 확인하므로, 그 사이 동의가 철회됐으면 P는 422 `AI_CONSENT_REQUIRED`, T는 404. AI 기능이 꺼져 있으면 503 `AI_UNAVAILABLE`.

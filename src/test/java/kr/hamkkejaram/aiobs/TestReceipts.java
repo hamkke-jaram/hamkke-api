@@ -23,6 +23,11 @@ public final class TestReceipts {
 
     /** src/test/resources/application-test.yml 의 app.ai.shared-secret 과 같은 값. */
     public static final String SECRET = "test-ai-shared-secret-test-ai-shared-secret-0123";
+    public static final String AI_CONSENT_VERSION = "2026-11-v2";
+
+    public static Map<String, Object> aiConsent() {
+        return Map.of("agreed", true, "version", AI_CONSENT_VERSION, "maxFrames", 24);
+    }
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Base64.Encoder B64 = Base64.getUrlEncoder().withoutPadding();

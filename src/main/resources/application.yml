@@ -65,7 +65,7 @@ app:
     terms-version: 2026-11-v1
     privacy-version: 2026-11-v1
     guardian-version: 2026-11-v1
-    ai-analysis-version: 2026-11-v1   # 'AI 관찰 기록' 동의 문서 버전 (docs/ai-observation.md)
+    ai-analysis-version: 2026-11-v2   # 가정 영상은 v2 동의로 최대 24장, 기존 v1 동의는 최대 6장 (docs/ai-observation.md)
     # 탈퇴·아이 삭제로 주인이 없어진 동의 기록을 철회 시각부터 얼마나 보관할지(ACC-12, 매일 04:37 파기). 법률 검토 전 가안 3년.
     consent-retention: 1095d
   cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:}
@@ -83,7 +83,7 @@ app:
   ai:
     enabled: ${AI_ENABLED:false}
     shared-secret: ${AI_SHARED_SECRET:}
-    max-frames: 6
+    max-frames: 24
     session-ttl: 10m
 
 ---

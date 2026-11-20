@@ -55,7 +55,7 @@ class AiReceiptReuseIntegrationTest extends IntegrationTestSupport {
     }
 
     private void agree(Account parent, long childId) throws Exception {
-        mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent.token()), Map.of("agreed", true, "version", V)))
+        mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent.token()), TestReceipts.aiConsent()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.agreed").value(true));
     }
 

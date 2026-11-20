@@ -73,7 +73,9 @@ public class AiSettings {
 
     public boolean enabled() { return enabled; }
 
-    public int maxFrames() { return maxFrames; }
+    int frameLimit(ObservationSource source) {
+        return source == ObservationSource.HOME ? maxFrames : Math.min(AppProperties.Policy.BASE_AI_FRAMES, maxFrames);
+    }
 
     public Duration sessionTtl() { return sessionTtl; }
 

@@ -75,11 +75,11 @@ public class AiObservationService {
     /** 분석 토큰 발급. 동의가 없으면 발급하지 않는다 = 사진이 한 장도 나가지 않는다. */
     @Transactional(readOnly = true)
     public AiSessionResponse issueSession(AuthUser user, long childId) {
-        ObservationSource source = requireCaptureAllowed(user, childId);
+        CaptureAccess capture = requireCaptureAllowed(user, childId);
         rateLimiter.checkAiSession(user.id());
-        AiSessionTokens.Issued issued = sessionTokens.issue(user.id(), childId, source);
-        log.info("ai session issued: childId={} source={}", childId, source);
-        return new AiSessionResponse(issued.token(), issued.expiresAt(), settings.maxFrames());
+        AiSessionTokens.Issued issued = sessionTokens.issue(user.id(), childId, capture.source(), capture.maxFrames());
+        log.info("ai session issued: childId={} source={}", childId, capture.source());
+        return new AiSessionResponse(issued.token(), issued.expiresAt(), issued.maxFrames());
     }
 
     /** 영수증을 검증해 관찰 기록을 저장한다. 가정 기록은 선생님 검토 대기로 저장한다. */
@@ -87,7 +87,8 @@ public class AiObservationService {
     public SaveObservationResponse save(AuthUser user, long childId, SaveObservationRequest req) {
         // 동의 철회(AiConsentService.revoke)와 줄 세운다(AIO-03). 잠근 뒤에 동의를 읽어야 막 커밋된 철회를 본다.
         access.lockChild(childId);
-        ObservationSource source = requireCaptureAllowed(user, childId);
+        CaptureAccess capture = requireCaptureAllowed(user, childId);
+        ObservationSource source = capture.source();
 
         AiReceiptVerifier.Verified receipt;
         try {
@@ -99,6 +100,10 @@ public class AiObservationService {
         // 영수증은 "이 사용자가 이 아이를 이 자리에서" 분석한 것이어야 한다.
         if (receipt.userId() != user.id() || receipt.childId() != childId || receipt.source() != source) {
             log.warn("ai receipt rejected: childId={} reason=subject_mismatch", childId);
+            throw new ApiException(ErrorCode.AI_RECEIPT_INVALID);
+        }
+        if (receipt.frameCount() > capture.maxFrames()) {
+            log.warn("ai receipt rejected: childId={} reason=consent_frame_limit", childId);
             throw new ApiException(ErrorCode.AI_RECEIPT_INVALID);
         }
         if (receipt.content().isEmpty()) {
@@ -181,6 +186,8 @@ public class AiObservationService {
         observations.delete(o);
     }
 
+    private record CaptureAccess(ObservationSource source, int maxFrames) {}
+
     /**
      * 이 사용자가 이 아이의 장면 사진을 AI 서버로 보내도 되는지 확인하고, 기록의 출처를 정한다.
      * <ul>
@@ -189,18 +196,19 @@ public class AiObservationService {
      *   <li>기능이 꺼져 있으면 503 {@code AI_UNAVAILABLE}.</li>
      * </ul>
      */
-    private ObservationSource requireCaptureAllowed(AuthUser user, long childId) {
+    private CaptureAccess requireCaptureAllowed(AuthUser user, long childId) {
         access.requireOwnerOrLinkedTeacher(user, childId);
-        boolean consented = consent.hasActiveConsent(childId);
+        int consentLimit = consent.activeFrameLimit(childId);
         if (user.isTeacher()) {
             boolean captureOn = shareSettings.findById(childId).map(ShareSetting::isInstitutionCapture).orElse(false);
-            if (!captureOn || !consented) throw ApiException.notFound();
+            if (!captureOn || consentLimit == 0) throw ApiException.notFound();
             settings.requireEnabled();
-            return ObservationSource.INSTITUTION;
+            return new CaptureAccess(ObservationSource.INSTITUTION,
+                    Math.min(consentLimit, settings.frameLimit(ObservationSource.INSTITUTION)));
         }
         settings.requireEnabled();
-        if (!consented) throw new ApiException(ErrorCode.AI_CONSENT_REQUIRED);
-        return ObservationSource.HOME;
+        if (consentLimit == 0) throw new ApiException(ErrorCode.AI_CONSENT_REQUIRED);
+        return new CaptureAccess(ObservationSource.HOME, Math.min(consentLimit, settings.frameLimit(ObservationSource.HOME)));
     }
 
     /** 기관 기록에만 만든 선생님의 표시명을 붙인다. 가정 기록에는 보호자 이름을 싣지 않는다. */

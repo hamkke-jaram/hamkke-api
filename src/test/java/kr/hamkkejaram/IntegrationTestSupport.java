@@ -121,7 +121,7 @@ abstract class IntegrationTestSupport {
     /** AI 동의 → 분석 토큰 → (AI 서버 역할로 서명한) 영수증 저장. 저장된 관찰 기록 id를 돌려준다. */
     long saveAiObservation(String token, long userId, long childId) throws Exception {
         mvc.perform(body(auth(put("/api/v1/children/" + childId + "/ai-consent"), token),
-                Map.of("agreed", true, "version", V))).andExpect(status().isOk());
+                TestReceipts.aiConsent())).andExpect(status().isOk());
         String session = json(mvc.perform(auth(post("/api/v1/children/" + childId + "/ai-sessions"), token))
                 .andExpect(status().isCreated()).andReturn()).get("token").asText();
         Map<String, Object> claims = TestReceipts.claims(userId, childId, "HOME");

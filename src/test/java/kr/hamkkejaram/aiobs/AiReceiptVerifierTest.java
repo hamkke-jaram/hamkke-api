@@ -233,7 +233,7 @@ class AiReceiptVerifierTest {
     /** 분석 토큰은 같은 비밀로 서명되지만 영수증으로 쓸 수 없다(사용자가 가진 토큰으로 기록을 만들 수 없다). */
     @Test
     void sessionTokenIsNotAReceipt() {
-        String token = sessions.issue(USER, CHILD, ObservationSource.HOME).token();
+        String token = sessions.issue(USER, CHILD, ObservationSource.HOME, 6).token();
         assertRejected(token, "jwt_");
     }
 
@@ -292,7 +292,7 @@ class AiReceiptVerifierTest {
         assertRejected(c, "fc_");
 
         c = claims();
-        c.put("fc", 7); // 한 번에 최대 6장
+        c.put("fc", 7); // 이 검증기는 한도를 6으로 설정했다
         assertRejected(c, "fc_");
 
         c = claims();
@@ -331,7 +331,7 @@ class AiReceiptVerifierTest {
 
     @Test
     void sessionTokenCarriesTheAgreedClaims() {
-        AiSessionTokens.Issued issued = sessions.issue(USER, CHILD, ObservationSource.INSTITUTION);
+        AiSessionTokens.Issued issued = sessions.issue(USER, CHILD, ObservationSource.INSTITUTION, 6);
         assertThat(issued.expiresAt()).isEqualTo(NOW.plus(Duration.ofMinutes(10)));
         assertThat(TestReceipts.signatureMatches(issued.token(), SECRET)).isTrue();
         assertThat(TestReceipts.header(issued.token()).get("alg").asText()).isEqualTo("HS256");
@@ -345,17 +345,18 @@ class AiReceiptVerifierTest {
         assertThat(p.get("cid").isIntegralNumber()).isTrue();
         assertThat(p.get("cid").asLong()).isEqualTo(CHILD);
         assertThat(p.get("src").asText()).isEqualTo("INSTITUTION");
+        assertThat(p.get("mf").asInt()).isEqualTo(issued.maxFrames()).isEqualTo(6);
         assertThat(p.get("jti").asText()).isEqualTo(issued.jti()).hasSize(36);
         assertThat(p.get("iat").asLong()).isEqualTo(NOW.getEpochSecond());
         assertThat(p.get("exp").asLong()).isEqualTo(NOW.getEpochSecond() + 600);
         // 사진·문장·이름 같은 것은 토큰에 없다
-        assertThat(p.size()).isEqualTo(8);
+        assertThat(p.size()).isEqualTo(9);
     }
 
     @Test
     void eachSessionGetsItsOwnJti() {
-        assertThat(sessions.issue(USER, CHILD, ObservationSource.HOME).jti())
-                .isNotEqualTo(sessions.issue(USER, CHILD, ObservationSource.HOME).jti());
+        assertThat(sessions.issue(USER, CHILD, ObservationSource.HOME, 6).jti())
+                .isNotEqualTo(sessions.issue(USER, CHILD, ObservationSource.HOME, 6).jti());
     }
 
     // ---------- 설정 ----------
@@ -401,7 +402,7 @@ class AiReceiptVerifierTest {
     @Test
     void surroundingWhitespaceInTheSecretIsIgnored() {
         AiSettings padded = new AiSettings(props(true, "  " + SECRET + "\n"), false);
-        String token = new AiSessionTokens(padded, clock).issue(USER, CHILD, ObservationSource.HOME).token();
+        String token = new AiSessionTokens(padded, clock).issue(USER, CHILD, ObservationSource.HOME, 6).token();
         assertThat(TestReceipts.signatureMatches(token, SECRET)).isTrue();
         assertThat(new AiReceiptVerifier(padded, clock).verify(sign(claims())).childId()).isEqualTo(CHILD);
     }
@@ -415,7 +416,7 @@ class AiReceiptVerifierTest {
         AiReceiptVerifier offVerifier = new AiReceiptVerifier(off, clock);
         assertThatThrownBy(() -> offVerifier.verify(sign(claims()))).isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).code()).isEqualTo(ErrorCode.AI_UNAVAILABLE);
-        assertThatThrownBy(() -> new AiSessionTokens(off, clock).issue(USER, CHILD, ObservationSource.HOME))
+        assertThatThrownBy(() -> new AiSessionTokens(off, clock).issue(USER, CHILD, ObservationSource.HOME, 6))
                 .isInstanceOf(ApiException.class);
     }
 }

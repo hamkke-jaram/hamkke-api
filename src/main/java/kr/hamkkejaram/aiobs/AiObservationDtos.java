@@ -1,5 +1,6 @@
 package kr.hamkkejaram.aiobs;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -18,15 +19,21 @@ public final class AiObservationDtos {
 
     public record AiConsentRequest(
             @NotNull @AssertTrue(message = "동의에 체크해 주세요.") Boolean agreed,
-            @NotBlank @Size(max = 30) String version) {}
+            @NotBlank @Size(max = 30) String version,
+            JsonNode maxFrames) {
+        boolean acknowledgesFrameLimit(int limit) {
+            return maxFrames != null && maxFrames.isIntegralNumber() && maxFrames.canConvertToInt()
+                    && maxFrames.intValue() == limit;
+        }
+    }
 
     /**
-     * agreed: 지금 유효한 동의가 있는지(철회되지 않았고 현재 동의 문서 버전에 대한 것).
+     * agreed: 지금 유효한 동의가 있는지. maxFrames: 유효한 동의가 허용하는 최대 사진 장수이며, 없으면 0.
      * version·agreedAt: 가장 최근에 한(철회하지 않은) 동의의 문서 버전과 시각. 동의한 적이 없으면 null.
      */
-    public record AiConsentResponse(boolean agreed, String version, Instant agreedAt) {
+    public record AiConsentResponse(boolean agreed, String version, Instant agreedAt, int maxFrames) {
         static AiConsentResponse none() {
-            return new AiConsentResponse(false, null, null);
+            return new AiConsentResponse(false, null, null, 0);
         }
     }
 

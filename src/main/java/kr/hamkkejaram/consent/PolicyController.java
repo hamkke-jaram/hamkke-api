@@ -21,11 +21,12 @@ public class PolicyController {
 
     /** aiObservationEnabled: AI 서버가 설정돼 'AI 관찰 기록'을 쓸 수 있는지. 꺼져 있으면 화면은 그 기능만 숨긴다. */
     public record PolicyResponse(String termsVersion, String privacyVersion, String guardianVersion,
-                                 String aiAnalysisVersion, boolean aiObservationEnabled, String disclaimer) {}
+                                 String aiAnalysisVersion, int aiAnalysisMaxFrames, boolean aiObservationEnabled,
+                                 String disclaimer) {}
 
     @GetMapping
     public PolicyResponse get() {
         return new PolicyResponse(policy.termsVersion(), policy.privacyVersion(), policy.guardianVersion(),
-                policy.aiAnalysisVersion(), aiObservationEnabled, DISCLAIMER);
+                policy.aiAnalysisVersion(), policy.aiAnalysisMaxFrames(), aiObservationEnabled, DISCLAIMER);
     }
 }

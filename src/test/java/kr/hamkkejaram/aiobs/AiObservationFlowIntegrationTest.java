@@ -96,8 +96,13 @@ class AiObservationFlowIntegrationTest {
     }
 
     private void agree(Account parent, long childId) throws Exception {
-        mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent), Map.of("agreed", true, "version", V)))
+        mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent), TestReceipts.aiConsent()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.agreed").value(true));
+    }
+
+    private void legacyAgree(Account parent, long childId) {
+        jdbc.update("INSERT INTO consents (user_id, child_id, type, version, agreed_at) VALUES (?, ?, ?, ?, ?)",
+                parent.id(), childId, "CHILD_IMAGE_AI_ANALYSIS", V, java.sql.Timestamp.from(Instant.now()));
     }
 
     private void link(Account parent, Account teacher, long childId) throws Exception {
@@ -174,7 +179,8 @@ class AiObservationFlowIntegrationTest {
     @Test
     void policiesExposeAiVersionAndAvailability() throws Exception {
         mvc.perform(get("/api/v1/policies")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.aiAnalysisVersion").value(V))
+                .andExpect(jsonPath("$.aiAnalysisVersion").value(TestReceipts.AI_CONSENT_VERSION))
+                .andExpect(jsonPath("$.aiAnalysisMaxFrames").value(24))
                 .andExpect(jsonPath("$.aiObservationEnabled").value(true))
                 .andExpect(jsonPath("$.termsVersion").value(V))
                 .andExpect(jsonPath("$.disclaimer").exists());
@@ -206,6 +212,7 @@ class AiObservationFlowIntegrationTest {
 
         mvc.perform(auth(get(path(childId, "/ai-consent")), parent)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.agreed").value(false))
+                .andExpect(jsonPath("$.maxFrames").value(0))
                 .andExpect(jsonPath("$.version").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.agreedAt").value(org.hamcrest.Matchers.nullValue()));
 
@@ -220,14 +227,15 @@ class AiObservationFlowIntegrationTest {
         mvc.perform(auth(get(path(childId, "/ai-consent")), parent)).andExpect(jsonPath("$.agreed").value(false));
 
         JsonNode first = json(mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent),
-                Map.of("agreed", true, "version", V))).andExpect(status().isOk()).andReturn());
+                TestReceipts.aiConsent())).andExpect(status().isOk()).andReturn());
         assertThat(first.get("agreed").asBoolean()).isTrue();
-        assertThat(first.get("version").asText()).isEqualTo(V);
+        assertThat(first.get("version").asText()).isEqualTo(TestReceipts.AI_CONSENT_VERSION);
+        assertThat(first.get("maxFrames").asInt()).isEqualTo(24);
         assertThat(first.get("agreedAt").asText()).isNotBlank();
 
         // 다시 보내도 처음 동의한 시각 그대로, 기록은 한 줄
         JsonNode again = json(mvc.perform(body(auth(put(path(childId, "/ai-consent")), parent),
-                Map.of("agreed", true, "version", V))).andExpect(status().isOk()).andReturn());
+                TestReceipts.aiConsent())).andExpect(status().isOk()).andReturn());
         assertThat(again.get("agreedAt").asText()).isEqualTo(first.get("agreedAt").asText());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consents WHERE child_id = ? AND type = ?",
                 Integer.class, childId, "CHILD_IMAGE_AI_ANALYSIS")).isEqualTo(1);
@@ -251,6 +259,7 @@ class AiObservationFlowIntegrationTest {
                 "CHILD_IMAGE_AI_ANALYSIS");
         mvc.perform(auth(get(path(childId, "/ai-consent")), parent))
                 .andExpect(jsonPath("$.agreed").value(false))
+                .andExpect(jsonPath("$.maxFrames").value(0))
                 .andExpect(jsonPath("$.version").value("2025-01-v0"));
         mvc.perform(auth(post(path(childId, "/ai-sessions")), parent)).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("AI_CONSENT_REQUIRED"));
@@ -271,7 +280,7 @@ class AiObservationFlowIntegrationTest {
         // 동의 없이는 분석 토큰이 나오지 않는다 = 사진이 한 장도 나가지 않는다
         mvc.perform(auth(post(path(childId, "/ai-sessions")), parent)).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("AI_CONSENT_REQUIRED"));
-        agree(parent, childId);
+        legacyAgree(parent, childId);
 
         // 분석 토큰: 계약의 클레임 그대로
         JsonNode session = session(parent, childId);
@@ -284,6 +293,7 @@ class AiObservationFlowIntegrationTest {
         assertThat(t.get("sub").asText()).isEqualTo(Long.toString(parent.id()));
         assertThat(t.get("cid").asLong()).isEqualTo(childId);
         assertThat(t.get("src").asText()).isEqualTo("HOME");
+        assertThat(t.get("mf").asInt()).isEqualTo(6);
         assertThat(t.get("exp").asLong() - t.get("iat").asLong()).isEqualTo(600);
         assertThat(Instant.parse(session.get("expiresAt").asText()).getEpochSecond()).isEqualTo(t.get("exp").asLong());
 
@@ -333,6 +343,59 @@ class AiObservationFlowIntegrationTest {
         assertThat(aiDeliveryCount(childId)).isZero();
         mvc.perform(auth(delete(path(childId, "/ai-observations/" + o.get("id").asLong())), parent))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void legacyConsentKeepsSixFramesUntilOwnerAcknowledgesTheRevisedFrameLimit() throws Exception {
+        Account parent = signup("PARENT");
+        long childId = createChild(parent);
+        String consentUrl = path(childId, "/ai-consent");
+        legacyAgree(parent, childId);
+        share(parent, childId, true, true);
+        mvc.perform(auth(get(consentUrl), parent)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.agreed").value(true)).andExpect(jsonPath("$.version").value(V))
+                .andExpect(jsonPath("$.maxFrames").value(6));
+        JsonNode legacy = session(parent, childId);
+        assertThat(legacy.get("maxFrames").asInt()).isEqualTo(6);
+        Map<String, Object> legacyClaims = receiptFor(legacy);
+        legacyClaims.put("fc", 7);
+        assertRejected(parent, childId, sign(legacyClaims));
+        legacyClaims.put("fc", 6);
+        long legacyRecord = save(parent, childId, legacyClaims).at("/observation/id").asLong();
+
+        // 구버전 웹은 최신 버전 이름만 읽을 수 있어도 새 사진 한도에 동의시킬 수 없다.
+        for (var unsafe : List.of(
+                Map.of("agreed", true, "version", TestReceipts.AI_CONSENT_VERSION),
+                Map.of("agreed", true, "version", TestReceipts.AI_CONSENT_VERSION, "maxFrames", "24"),
+                Map.of("agreed", true, "version", TestReceipts.AI_CONSENT_VERSION, "maxFrames", 6))) {
+            mvc.perform(body(auth(put(consentUrl), parent), unsafe)).andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("AI_CONSENT_VERSION_MISMATCH"));
+        }
+        assertThat(session(parent, childId).get("maxFrames").asInt()).isEqualTo(6);
+        agree(parent, childId);
+        mvc.perform(auth(get(consentUrl), parent)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(TestReceipts.AI_CONSENT_VERSION))
+                .andExpect(jsonPath("$.maxFrames").value(24));
+        mvc.perform(auth(get(path(childId, "/share-settings")), parent)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.aiObservations").value(true))
+                .andExpect(jsonPath("$.institutionCapture").value(true));
+        mvc.perform(auth(get(path(childId, "/ai-observations")), parent)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(legacyRecord));
+
+        JsonNode extended = session(parent, childId);
+        assertThat(extended.get("maxFrames").asInt()).isEqualTo(24);
+        String token = extended.get("token").asText();
+        assertThat(TestReceipts.signatureMatches(token, TestReceipts.SECRET)).isTrue();
+        assertThat(TestReceipts.payload(token).get("mf").asInt()).isEqualTo(24);
+
+        Map<String, Object> claims = receiptFor(extended);
+        claims.put("fc", 25);
+        assertRejected(parent, childId, sign(claims));
+        claims.put("fc", 24);
+        assertThat(save(parent, childId, claims).at("/observation/frameCount").asInt()).isEqualTo(24);
+        mvc.perform(auth(get(path(childId, "/ai-observations")), parent)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].frameCount").value(24));
+        assertThat(observationCount(childId)).isEqualTo(2);
     }
 
     @Test
@@ -429,7 +492,7 @@ class AiObservationFlowIntegrationTest {
         c.put("obs", obs("아이가 웃어요.", List.of("CALM"), List.of(), List.of(), 7));
         assertRejected(parent, childId, sign(c));
         c = receiptFor(session);
-        c.put("fc", 9);
+        c.put("fc", 25);
         assertRejected(parent, childId, sign(c));
         c = receiptFor(session);
         c.remove("obs");
@@ -727,6 +790,11 @@ class AiObservationFlowIntegrationTest {
         JsonNode t = TestReceipts.payload(session.get("token").asText());
         assertThat(t.get("src").asText()).isEqualTo("INSTITUTION");
         assertThat(t.get("sub").asText()).isEqualTo(Long.toString(teacher.id()));
+        assertThat(session.get("maxFrames").asInt()).isEqualTo(6);
+        assertThat(t.get("mf").asInt()).isEqualTo(6);
+        Map<String, Object> tooManyFrames = receiptFor(session);
+        tooManyFrames.put("fc", 7);
+        assertRejected(teacher, childId, sign(tooManyFrames));
 
         // 기관 기록에는 카드가 없다
         JsonNode saved = save(teacher, childId, receiptFor(session));
