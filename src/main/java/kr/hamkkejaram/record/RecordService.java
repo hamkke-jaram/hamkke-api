@@ -2,7 +2,9 @@ package kr.hamkkejaram.record;
 
 import kr.hamkkejaram.card.CardDtos.Coaching;
 import kr.hamkkejaram.card.CoachingService;
+import kr.hamkkejaram.child.Child;
 import kr.hamkkejaram.child.ChildAccess;
+import kr.hamkkejaram.common.TimeConfig;
 import kr.hamkkejaram.common.ApiException;
 import kr.hamkkejaram.common.ErrorCode;
 import kr.hamkkejaram.record.RecordDtos.CreateRecordRequest;
@@ -19,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -72,14 +75,14 @@ public class RecordService {
     }
 
     private SaveResult saveOnce(AuthUser user, long childId, CreateRecordRequest req, String clientId) {
-        access.requireOwner(user, childId);
+        Child child = access.requireOwner(user, childId);
 
         Optional<InteractionRecord> existing = records.findByChildIdAndClientRecordId(childId, clientId);
         if (existing.isPresent()) {
             return existingResult(existing.get());
         }
 
-        validate(req);
+        validate(req, child);
         Instant now = clock.instant();
         List<MetricValues> baseline = records.findBaseline(childId, req.specVersion(), req.recordedAt(),
                         PageRequest.of(0, TrendCalculator.BASELINE_SIZE))
@@ -119,7 +122,7 @@ public class RecordService {
         records.delete(r);
     }
 
-    private void validate(CreateRecordRequest req) {
+    private void validate(CreateRecordRequest req, Child child) {
         if (!SUPPORTED_SPEC_VERSIONS.contains(req.specVersion())) {
             throw new ApiException(ErrorCode.UNSUPPORTED_SPEC_VERSION);
         }
@@ -131,6 +134,14 @@ public class RecordService {
         }
         if (req.recordedAt().isAfter(clock.instant().plus(CLOCK_SKEW))) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "촬영 시각이 미래일 수 없어요.");
+        }
+        // 촬영 시각은 기기의 영상 파일 수정 시각에서 온다. 기기 날짜가 틀렸거나 메신저로 받은 파일이면 아주 옛날 값이
+        // 올 수 있는데, 그런 기록은 목록에만 남고 주간 요약·변화 추이에서는 빠져 부모가 이유를 알기 어렵다.
+        // 생일은 월까지만 알므로 태어난 달의 1일(서비스 시간대)보다 앞서면 받지 않는다.
+        Instant birthMonthStart = YearMonth.parse(child.getBirthYearMonth()).atDay(1)
+                .atStartOfDay(TimeConfig.SERVICE_ZONE).toInstant();
+        if (req.recordedAt().isBefore(birthMonthStart)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "촬영 시각이 아이가 태어난 달보다 앞서요. 기기 날짜를 확인해 주세요.");
         }
     }
 }

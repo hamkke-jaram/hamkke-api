@@ -2,6 +2,7 @@ package kr.hamkkejaram.record;
 
 import kr.hamkkejaram.card.CardDtos.Coaching;
 import kr.hamkkejaram.card.CoachingService;
+import kr.hamkkejaram.child.Child;
 import kr.hamkkejaram.child.ChildAccess;
 import kr.hamkkejaram.record.RecordDtos.CreateRecordRequest;
 import kr.hamkkejaram.security.AuthUser;
@@ -14,6 +15,7 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -47,8 +49,11 @@ class RecordServiceConcurrentResendTest {
 
     RecordServiceConcurrentResendTest() {
         when(txManager.getTransaction(any())).thenAnswer(inv -> new SimpleTransactionStatus());
-        service = new RecordService(records, mock(ChildAccess.class), coaching, Clock.fixed(NOW, ZoneOffset.UTC),
-                txManager);
+        // 저장 검증이 아이의 생년월을 보므로, 권한 확인이 실제처럼 아이를 돌려주게 한다.
+        ChildAccess access = mock(ChildAccess.class);
+        when(access.requireOwner(PARENT, CHILD))
+                .thenReturn(new Child(PARENT.id(), "하늘", YearMonth.of(2023, 5), NOW.minusSeconds(86_400)));
+        service = new RecordService(records, access, coaching, Clock.fixed(NOW, ZoneOffset.UTC), txManager);
     }
 
     private CreateRecordRequest request(String clientId) {

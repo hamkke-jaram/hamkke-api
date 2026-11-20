@@ -198,4 +198,24 @@ class RequirementGapsIntegrationTest extends IntegrationTestSupport {
         edge.put("respondedBidCount", 4);
         mvc.perform(body(auth(post(path), t), edge)).andExpect(status().isCreated());
     }
+
+    /** 기기 날짜가 틀린 영상처럼 태어나기 전 시각의 기록은 받지 않는다(요약·추이에서 조용히 빠지지 않게). */
+    @Test
+    void recordShotBeforeTheBirthMonthIsRejected() throws Exception {
+        String t = token(signup("PARENT"));
+        var req = Map.of("nickname", "바다", "birthYearMonth", "2024-05",
+                "guardianConsent", Map.of("agreed", true, "version", V));
+        long childId = json(mvc.perform(body(auth(post("/api/v1/children"), t), req))
+                .andExpect(status().isCreated()).andReturn()).get("id").asLong();
+        String path = "/api/v1/children/" + childId + "/interaction-records";
+
+        for (String at : List.of("1990-01-01T00:00:00Z", "2024-04-30T14:59:59Z")) { // 2024-05-01 00:00 KST 직전
+            mvc.perform(body(auth(post(path), t), metrics(Instant.parse(at))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        }
+        // 태어난 달의 첫 순간(서비스 시간대)부터는 받는다
+        mvc.perform(body(auth(post(path), t), metrics(Instant.parse("2024-04-30T15:00:00Z"))))
+                .andExpect(status().isCreated());
+    }
 }
