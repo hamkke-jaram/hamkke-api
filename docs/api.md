@@ -394,7 +394,7 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 - 새 가정 기록은 `PENDING`이다. 보호자 목록과 데이터 내려받기에는 검토 전 관찰 문장과 태그를 담지 않는다. 기존 가정 기록과 기관 기록은 `reviewStatus: null`로 표시한다.
 - `GET /children/{id}/ai-observations/{observationId}/review`는 현재 연결된 교사가 해당 아이의 AI 분석 동의와 가정 AI 관찰 공유가 유효할 때 사용할 수 있다. 응답은 `{ reviewerId, status, ageMonths, observation }`이며, 나이는 기록 시점의 월령이다.
 - 교사는 PC AI의 `POST /ai/v1/observation-guidance`로 상황을 검토하고 근거를 조회한다. 반환된 영수증은 교사, 아이, 기록, 검토한 요약, 추천, 자료 버전에 묶여 있다.
-- `POST /children/{id}/ai-observations/{observationId}/review/publish`는 `{ receipt, selectedSourceIds? }`를 받는다. 생략하면 조회한 추천을 모두 게시하고 빈 배열이면 요약만 게시한다. 현재 권한을 재확인하고 최초 게시만 허용한다. 같은 교사의 동일한 재전송은 저장된 결과를 반환한다.
-- 게시 후 보호자는 `PUBLISHED`와 `publishedGuidance: { summary, recommendations, corpusVersion, reviewedAt }`를 받는다. 각 추천에는 `observation, action, reason, sourceId, sourceTitle, sourcePublisher, sourceUrl, sourceSection`이 있다.
+- `POST /children/{id}/ai-observations/{observationId}/review/publish`는 `{ receipt, selectedSourceIds?, teacherEdits?, teacherRecommendation? }`를 받는다. `selectedSourceIds`를 생략하면 서명된 추천을 모두 게시하고 빈 배열이면 AI 추천을 게시하지 않는다. `teacherEdits`는 선택한 추천에 대해 `{ sourceId, action, rationale? }`를 항목당 한 번 받는다. `teacherRecommendation`은 교사가 별도로 제안한 `{ action, rationale? }`이다. 조치와 근거는 각각 최대 500자다. 현재 권한을 재확인하고 최초 게시만 허용한다. 같은 교사의 동일한 재전송은 저장된 결과를 반환한다.
+- 게시 후 보호자는 `PUBLISHED`와 `publishedGuidance: { summary, recommendations, corpusVersion, reviewedAt, teacherEdits?, teacherRecommendation? }`를 받는다. `recommendations`에는 서명된 원래의 `observation, action, reason, sourceId, sourceTitle, sourcePublisher, sourceUrl, sourceSection`이 담긴다. 교사가 수정한 조치와 이유는 `teacherEdits`, 직접 추가한 조치와 이유는 `teacherRecommendation`에 담긴다.
 
 - 목록(`GET`)의 항목은 위 `observation`과 같은 모양의 배열이다.

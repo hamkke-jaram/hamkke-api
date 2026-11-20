@@ -539,12 +539,61 @@ class AiObservationFlowIntegrationTest {
         mvc.perform(auth(get(path(childId, "/ai-observations")), parent))
                 .andExpect(jsonPath("$[0].summary").value(claims.get("summary")))
                 .andExpect(jsonPath("$[0].moments").isEmpty())
-                .andExpect(jsonPath("$[0].publishedGuidance.recommendations[0].sourceUrl").value("https://example.org/activity"));
+                .andExpect(jsonPath("$[0].publishedGuidance.recommendations[0].sourceUrl").value("https://example.org/activity"))
+                .andExpect(jsonPath("$[0].publishedGuidance.teacherEdits").doesNotExist())
+                .andExpect(jsonPath("$[0].publishedGuidance.teacherRecommendation").doesNotExist());
         mvc.perform(auth(get("/api/v1/me/export"), parent))
                 .andExpect(jsonPath("$.children[0].aiObservations[0].publishedGuidance.recommendations[0].sourceId").value("source-1"));
         mvc.perform(auth(delete(path(childId, "/ai-consent")), parent)).andExpect(status().isNoContent());
         mvc.perform(auth(get(url), teacher)).andExpect(status().isNotFound());
         assertThat(observationCount(childId)).isZero();
+    }
+
+    @Test
+    void teacherActionAndRationaleArePublishedSeparatelyFromSignedAiEvidence() throws Exception {
+        Account parent = signup("PARENT");
+        Account teacher = signup("TEACHER");
+        long childId = createChild(parent);
+        agree(parent, childId);
+        link(parent, teacher, childId);
+        share(parent, childId, true, false);
+        long id = save(parent, childId, receiptFor(session(parent, childId))).at("/observation/id").asLong();
+        String observationsUrl = path(childId, "/ai-observations");
+        String publishUrl = observationsUrl + "/" + id + "/review/publish";
+        String receipt = sign(reviewClaims(teacher.id(), childId, id));
+        var edit = Map.of("sourceId", "source-1", "action", "  블록을 고를 때 옆에서 기다려 주세요.  ",
+                "rationale", "반에서 아이가 먼저 고르는 시간을 주면 놀이를 이어 갔어요.");
+        var teacherRecommendation = Map.of("action", "선택할 블록을 두 개 준비해 주세요.", "rationale", " ");
+        mvc.perform(body(auth(post(publishUrl), teacher), Map.of(
+                        "receipt", receipt, "selectedSourceIds", List.of(), "teacherEdits", List.of(edit))))
+                .andExpect(status().isBadRequest());
+        mvc.perform(body(auth(post(publishUrl), teacher), Map.of(
+                        "receipt", receipt, "teacherEdits", List.of(edit, edit))))
+                .andExpect(status().isBadRequest());
+        mvc.perform(body(auth(post(publishUrl), teacher), Map.of(
+                        "receipt", receipt, "teacherEdits", List.of(Map.of("sourceId", "source-1", "action", " ")))))
+                .andExpect(status().isBadRequest());
+        mvc.perform(auth(get(observationsUrl), parent))
+                .andExpect(jsonPath("$[0].publishedGuidance").doesNotExist());
+
+        var request = Map.of("receipt", receipt, "selectedSourceIds", List.of("source-1"), "teacherEdits", List.of(edit),
+                "teacherRecommendation", teacherRecommendation);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mvc.perform(body(auth(post(publishUrl), teacher), request)).andExpect(status().isOk());
+        }
+        mvc.perform(body(auth(post(publishUrl), teacher), Map.of(
+                        "receipt", receipt, "selectedSourceIds", List.of("source-1"), "teacherEdits", List.of(edit),
+                        "teacherRecommendation", Map.of("action", teacherRecommendation.get("action"), "rationale", "변경"))))
+                .andExpect(status().isConflict());
+        mvc.perform(auth(get(observationsUrl), parent))
+                .andExpect(jsonPath("$[0].publishedGuidance.recommendations[0].action")
+                        .value("아이가 고른 놀잇감으로 한 차례를 기다려 주세요."))
+                .andExpect(jsonPath("$[0].publishedGuidance.recommendations[0].sourceUrl").value("https://example.org/activity"))
+                .andExpect(jsonPath("$[0].publishedGuidance.teacherEdits[0].sourceId").value("source-1"))
+                .andExpect(jsonPath("$[0].publishedGuidance.teacherEdits[0].action").value(edit.get("action").strip()))
+                .andExpect(jsonPath("$[0].publishedGuidance.teacherEdits[0].rationale").value(edit.get("rationale")))
+                .andExpect(jsonPath("$[0].publishedGuidance.teacherRecommendation.action").value(teacherRecommendation.get("action")))
+                .andExpect(jsonPath("$[0].publishedGuidance.teacherRecommendation.rationale").doesNotExist());
     }
 
     @Test

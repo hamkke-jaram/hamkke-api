@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Only the PC AI retrieves sources. Browsers can omit an offered action but cannot supply its citation or text. */
+/** The PC AI signs the suggestions and their sources. Teacher edits are submitted separately. */
 final class AiGuidanceVerifier {
     static final String AUDIENCE = "hamkke-api-guidance";
     record Guidance(String summary, List<Recommendation> recommendations, String corpusVersion) {}

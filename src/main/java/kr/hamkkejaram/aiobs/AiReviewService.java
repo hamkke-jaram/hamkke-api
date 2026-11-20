@@ -4,6 +4,7 @@ import kr.hamkkejaram.aiobs.AiObservationDtos.ObservationResponse;
 import kr.hamkkejaram.aiobs.AiReviewDtos.PublishRequest;
 import kr.hamkkejaram.aiobs.AiReviewDtos.PublishedGuidance;
 import kr.hamkkejaram.aiobs.AiReviewDtos.Recommendation;
+import kr.hamkkejaram.aiobs.AiReviewDtos.TeacherEdit;
 import kr.hamkkejaram.aiobs.AiReviewDtos.TeacherReview;
 import kr.hamkkejaram.child.Child;
 import kr.hamkkejaram.child.ChildAccess;
@@ -22,6 +23,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
@@ -71,7 +73,9 @@ public class AiReviewService {
         access.lockChild(childId);
         requireReviewer(user, childId);
         AiObservation o = reviewable(childId, id);
-        String hash = fingerprint(req);
+        List<TeacherEdit> edits = req.teacherEdits() == null ? List.of() : req.teacherEdits().stream()
+                .sorted(Comparator.comparing(TeacherEdit::sourceId)).toList();
+        String hash = fingerprint(req, edits);
         if (o.getReviewStatus() == AiObservation.ReviewStatus.PUBLISHED) {
             if (o.isPublicationRetry(user.id(), hash)) return ObservationResponse.from(o, null, user.id(), true);
             throw new ApiException(ErrorCode.DUPLICATE_REQUEST, "이미 검토를 마친 기록이에요. 목록을 다시 확인해 주세요.");
@@ -92,26 +96,51 @@ public class AiReviewService {
                 throw new ApiException(ErrorCode.VALIDATION_FAILED, "검토한 추천에서 전달할 항목을 골라 주세요.");
             }
         }
-        o.publish(user.id(), hash, new PublishedGuidance(guidance.summary(), selected, guidance.corpusVersion(), now));
+        var editableSources = new HashSet<>(selected.stream().map(Recommendation::sourceId).toList());
+        for (TeacherEdit edit : edits) {
+            if (!editableSources.remove(edit.sourceId())) {
+                throw new ApiException(ErrorCode.VALIDATION_FAILED, "전달할 추천만 항목마다 한 번 수정해 주세요.");
+            }
+        }
+        o.publish(user.id(), hash, new PublishedGuidance(guidance.summary(), selected, guidance.corpusVersion(), now,
+                edits, req.teacherRecommendation()));
         return ObservationResponse.from(o, null, user.id(), true);
     }
 
-    private static String fingerprint(PublishRequest req) {
+    private static String fingerprint(PublishRequest req, List<TeacherEdit> edits) {
         try {
             MessageDigest hash = MessageDigest.getInstance("SHA-256");
             hash.update(req.receipt().getBytes(StandardCharsets.UTF_8));
             if (req.selectedSourceIds() != null) {
                 hash.update((byte) 0);
-                req.selectedSourceIds().stream().sorted().forEach(id -> {
-                    byte[] bytes = id.getBytes(StandardCharsets.UTF_8);
-                    hash.update((byte) (bytes.length >>> 8));
-                    hash.update((byte) bytes.length);
-                    hash.update(bytes);
-                });
+                req.selectedSourceIds().stream().sorted().forEach(id -> hashText(hash, id));
+            }
+            var recommendation = req.teacherRecommendation();
+            if (!edits.isEmpty() || recommendation != null) {
+                // An extended request has a separate suffix while old publication hashes remain valid.
+                hash.update((byte) 0xff);
+                hash.update((byte) edits.size());
+                for (TeacherEdit edit : edits) {
+                    hashText(hash, edit.sourceId());
+                    hashText(hash, edit.action());
+                    hashText(hash, edit.rationale());
+                }
+                hash.update((byte) (recommendation == null ? 0 : 1));
+                if (recommendation != null) {
+                    hashText(hash, recommendation.action());
+                    hashText(hash, recommendation.rationale());
+                }
             }
             return HexFormat.of().formatHex(hash.digest());
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
+    }
+
+    private static void hashText(MessageDigest hash, String value) {
+        byte[] bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+        hash.update((byte) (bytes.length >>> 8));
+        hash.update((byte) bytes.length);
+        hash.update(bytes);
     }
 }
