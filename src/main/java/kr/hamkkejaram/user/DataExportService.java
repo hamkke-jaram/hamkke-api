@@ -71,7 +71,8 @@ public class DataExportService {
     @Transactional(readOnly = true)
     public DataExport export(long userId) {
         User u = users.findById(userId).orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
-        Account account = new Account(u.getId(), u.getEmail(), u.getDisplayName(), u.getRole(), u.getCreatedAt());
+        Account account = new Account(u.getId(), u.getEmail(), u.getDisplayName(), u.getRole(), u.getCreatedAt(),
+                u.getInstitution(), u.getClassName());
         List<ConsentResponse> consentList = consents.findByUserIdOrderByAgreedAtDesc(userId).stream()
                 .map(ConsentResponse::from).toList();
         if (u.getRole() == Role.PARENT) {
@@ -163,8 +164,8 @@ public class DataExportService {
                         nicknames.get(l.getChildId()), l.getLinkedAt())).toList(),
                 goals.stream().map(g -> new TeacherGoalItem(g.getId(), g.getChildId(), g.getTitle(),
                         g.getDescription(), g.getStatus(), g.getCreatedAt(), g.getUpdatedAt())).toList(),
-                notes.stream().map(n -> new TeacherNoteItem(n.getId(), n.getChildId(), n.getContent(),
-                        n.getObservedOn(), n.getCreatedAt())).toList(),
+                notes.stream().map(n -> new TeacherNoteItem(n.getId(), n.getChildId(), n.getTitle(), n.getContent(),
+                        n.getObservedOn(), n.getCardDeliveryId(), n.getCreatedAt())).toList(),
                 messages.stream().map(m -> new TeacherMessageItem(m.getId(), m.getChildId(), m.getContent(),
                         m.getObservationId(), m.getCreatedAt())).toList());
     }

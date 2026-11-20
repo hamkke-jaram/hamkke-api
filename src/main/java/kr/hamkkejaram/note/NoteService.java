@@ -1,15 +1,19 @@
 package kr.hamkkejaram.note;
 
+import kr.hamkkejaram.card.CardDelivery;
+import kr.hamkkejaram.card.CardDeliveryRepository;
 import kr.hamkkejaram.child.ChildAccess;
 import kr.hamkkejaram.common.ApiException;
 import kr.hamkkejaram.common.ErrorCode;
 import kr.hamkkejaram.common.TimeConfig;
+import kr.hamkkejaram.note.NoteDtos.AttachedCard;
 import kr.hamkkejaram.note.NoteDtos.CreateGoalRequest;
 import kr.hamkkejaram.note.NoteDtos.CreateObservationRequest;
 import kr.hamkkejaram.note.NoteDtos.GoalResponse;
 import kr.hamkkejaram.note.NoteDtos.ObservationResponse;
 import kr.hamkkejaram.note.NoteDtos.UpdateGoalRequest;
 import kr.hamkkejaram.security.AuthUser;
+import kr.hamkkejaram.share.ShareSettingRepository;
 import kr.hamkkejaram.user.User;
 import kr.hamkkejaram.user.UserRepository;
 import org.springframework.data.domain.PageRequest;
@@ -23,21 +27,29 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/** 교사가 쓰는 아동 목표와 관찰 메모. 부모는 읽기만 한다. */
+/**
+ * 교사가 쓰는 아동 목표와 관찰 메모(선생님 이야기). 부모는 읽기만 한다.
+ * 이야기에는 제목과 이 아이가 받은 코칭 카드를 붙일 수 있다(카드는 보호자가 '받은 코칭 카드' 공유를 켠 경우만).
+ */
 @Service
 public class NoteService {
     private final ChildGoalRepository goals;
     private final ObservationNoteRepository notes;
     private final UserRepository users;
     private final ChildAccess access;
+    private final CardDeliveryRepository deliveries;
+    private final ShareSettingRepository shareSettings;
     private final Clock clock;
 
     public NoteService(ChildGoalRepository goals, ObservationNoteRepository notes, UserRepository users,
-                       ChildAccess access, Clock clock) {
+                       ChildAccess access, CardDeliveryRepository deliveries, ShareSettingRepository shareSettings,
+                       Clock clock) {
         this.goals = goals;
         this.notes = notes;
         this.users = users;
         this.access = access;
+        this.deliveries = deliveries;
+        this.shareSettings = shareSettings;
         this.clock = clock;
     }
 
@@ -89,8 +101,13 @@ public class NoteService {
             list = notes.findOlderThan(childId, anchor.getObservedOn(), anchor.getId(), page);
         }
         Map<Long, String> names = names(list.stream().map(ObservationNote::getTeacherId).toList());
+        Map<Long, AttachedCard> cards = deliveries.findAllById(list.stream().map(ObservationNote::getCardDeliveryId)
+                        .filter(java.util.Objects::nonNull).distinct().toList())
+                .stream().collect(Collectors.toMap(CardDelivery::getId, NoteService::attached));
         return list.stream()
-                .map(o -> ObservationResponse.from(o, names.getOrDefault(o.getTeacherId(), "선생님"))).toList();
+                .map(o -> ObservationResponse.from(o, names.getOrDefault(o.getTeacherId(), "선생님"),
+                        o.getCardDeliveryId() == null ? null : cards.get(o.getCardDeliveryId())))
+                .toList();
     }
 
     @Transactional
@@ -100,9 +117,18 @@ public class NoteService {
         if (req.observedOn().isAfter(today)) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "관찰일은 오늘이나 이전 날짜로 입력해 주세요.");
         }
-        ObservationNote n = notes.save(new ObservationNote(childId, user.id(), req.content().trim(),
-                req.observedOn(), clock.instant()));
-        return ObservationResponse.from(n, nameOf(user.id()));
+        AttachedCard card = null;
+        if (req.cardDeliveryId() != null) {
+            // 이 아이가 받은 카드이고, 보호자가 카드 공유를 켠 경우만(카드 목록을 볼 수 있는 것과 같은 규칙). 아니면 없는 것처럼 404.
+            boolean shared = shareSettings.findById(childId).map(s -> s.isCoachingCards()).orElse(false);
+            CardDelivery d = deliveries.findByIdAndChildId(req.cardDeliveryId(), childId)
+                    .filter(x -> shared).orElseThrow(ApiException::notFound);
+            card = attached(d);
+        }
+        String title = req.title() == null || req.title().isBlank() ? null : req.title().strip();
+        ObservationNote n = notes.save(new ObservationNote(childId, user.id(), title, req.content().trim(),
+                req.observedOn(), req.cardDeliveryId(), clock.instant()));
+        return ObservationResponse.from(n, nameOf(user.id()), card);
     }
 
     @Transactional
@@ -112,6 +138,11 @@ public class NoteService {
                 .filter(x -> x.getTeacherId().equals(user.id()))
                 .orElseThrow(ApiException::notFound);
         notes.delete(n);
+    }
+
+    private static AttachedCard attached(CardDelivery d) {
+        var c = d.getCard();
+        return new AttachedCard(d.getId(), c.getId(), c.getCode(), c.getTitle(), c.getBody());
     }
 
     private ChildGoal ownGoal(AuthUser user, long childId, long goalId) {

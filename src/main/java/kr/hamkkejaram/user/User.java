@@ -34,6 +34,13 @@ public class User {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** 선생님의 기관·반 이름(선택). 선생님 홈 머리에 보인다. */
+    @Column(length = 40)
+    private String institution;
+
+    @Column(name = "class_name", length = 30)
+    private String className;
+
     protected User() {}
 
     public User(String email, String passwordHash, String displayName, Role role, Instant createdAt) {
@@ -43,6 +50,16 @@ public class User {
         this.role = role;
         this.createdAt = createdAt;
     }
+
+    /** 기관·반 이름 수정. 빈 값은 null로 받는다. */
+    public void changeTeacherProfile(String institution, String className) {
+        this.institution = institution;
+        this.className = className;
+    }
+
+    public String getInstitution() { return institution; }
+
+    public String getClassName() { return className; }
 
     /** 표시명 수정. 호출하는 쪽이 앞뒤 공백을 지우고 길이(1~30자)를 확인한다. */
     public void changeDisplayName(String displayName) {

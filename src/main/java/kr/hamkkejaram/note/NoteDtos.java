@@ -31,13 +31,22 @@ public final class NoteDtos {
         }
     }
 
-    public record CreateObservationRequest(@NotBlank @Size(max = 1000) String content, @NotNull LocalDate observedOn) {}
+    /** title·cardDeliveryId는 선택. cardDeliveryId는 이 아이가 받은 코칭 카드 전달 기록(보호자가 카드 공유를 켠 경우만). */
+    public record CreateObservationRequest(@NotBlank @Size(max = 1000) String content, @NotNull LocalDate observedOn,
+                                           @Size(max = 40) String title, Long cardDeliveryId) {}
 
-    public record ObservationResponse(long id, String content, LocalDate observedOn, long teacherId,
-                                      String teacherName, Instant createdAt) {
+    /** 이야기에 첨부한 코칭 카드(화면은 code로 그림을 고른다). */
+    public record AttachedCard(long deliveryId, long cardId, String code, String title, String body) {}
+
+    public record ObservationResponse(long id, String title, String content, LocalDate observedOn, long teacherId,
+                                      String teacherName, Instant createdAt, AttachedCard card) {
         public static ObservationResponse from(ObservationNote n, String teacherName) {
-            return new ObservationResponse(n.getId(), n.getContent(), n.getObservedOn(), n.getTeacherId(),
-                    teacherName, n.getCreatedAt());
+            return from(n, teacherName, null);
+        }
+
+        public static ObservationResponse from(ObservationNote n, String teacherName, AttachedCard card) {
+            return new ObservationResponse(n.getId(), n.getTitle(), n.getContent(), n.getObservedOn(), n.getTeacherId(),
+                    teacherName, n.getCreatedAt(), card);
         }
     }
 }

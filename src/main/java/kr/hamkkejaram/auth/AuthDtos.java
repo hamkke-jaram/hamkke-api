@@ -49,10 +49,10 @@ public final class AuthDtos {
      * ({@code TERMS_OF_SERVICE}, {@code PRIVACY_POLICY} 중). 평소에는 빈 배열이다.
      */
     public record UserResponse(long id, String email, String displayName, Role role,
-                               List<ConsentType> pendingConsents) {
+                               List<ConsentType> pendingConsents, String institution, String className) {
         public static UserResponse from(User u, List<ConsentType> pendingConsents) {
             return new UserResponse(u.getId(), u.getEmail(), u.getDisplayName(), u.getRole(),
-                    List.copyOf(pendingConsents));
+                    List.copyOf(pendingConsents), u.getInstitution(), u.getClassName());
         }
     }
 

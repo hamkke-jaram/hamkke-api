@@ -29,7 +29,8 @@ public final class DataExportDtos {
     public record DataExport(String format, Instant exportedAt, String notice, Account account,
                              List<ConsentResponse> consents, List<ChildExport> children, TeacherExport teacher) {}
 
-    public record Account(long id, String email, String displayName, Role role, Instant createdAt) {}
+    public record Account(long id, String email, String displayName, Role role, Instant createdAt,
+                          String institution, String className) {}
 
     /** linkedTeachers에는 선생님의 표시명과 연결 시각만 담는다(이메일 없음). */
     public record ChildExport(long id, String nickname, String birthYearMonth, Instant createdAt,
@@ -65,5 +66,6 @@ public final class DataExportDtos {
     public record TeacherGoalItem(long id, long childId, String title, String description, GoalStatus status,
                                   Instant createdAt, Instant updatedAt) {}
 
-    public record TeacherNoteItem(long id, long childId, String content, LocalDate observedOn, Instant createdAt) {}
+    public record TeacherNoteItem(long id, long childId, String title, String content, LocalDate observedOn,
+                                  Long cardDeliveryId, Instant createdAt) {}
 }

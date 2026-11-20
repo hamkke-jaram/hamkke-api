@@ -65,7 +65,8 @@
 | POST 🔓 | `/auth/login` | | 로그인 |
 | POST 🔓 | `/auth/refresh` | | 리프레시 토큰 회전 |
 | POST 🔓 | `/auth/logout` | | 리프레시 토큰 폐기 |
-| GET | `/me` | P, T | 내 정보 `{ id, email, displayName, role, pendingConsents }` — `pendingConsents`는 아래 '재동의' 참고 |
+| GET | `/me` | P, T | 내 정보 `{ id, email, displayName, role, pendingConsents, institution, className }` — `pendingConsents`는 아래 '재동의' 참고. `institution`(기관 이름)·`className`(반 이름)은 선생님만 쓰고 없으면 `null` |
+| PUT | `/me/teacher-profile` | T | 선생님 기관·반 이름 `{ institution?(~40자), className?(~30자) }`(앞뒤 공백을 지우고, 비면 지운다) → 200 `GET /me`와 같은 본문. 보호자는 403 |
 | PATCH | `/me` | P, T | 표시명 수정 `{ displayName }`(앞뒤 공백을 지운 뒤 1~30자, 공백만은 안 됨) → 200 `GET /me`와 같은 본문 (ACC-08) |
 | PUT | `/me/password` | P, T | 비밀번호 변경 `{ currentPassword, newPassword }` → 200 토큰 묶음(아래) (ACC-09) |
 | DELETE | `/me` | P, T | 탈퇴(즉시 삭제). 본문 `{ "password": "..." }` → 204. 비밀번호가 다르면 401 `INVALID_CREDENTIALS`. IP당 요청이 많거나(비밀번호 확인 한도, 아래 'IP 기준 요청 제한'), 이 계정의 비밀번호를 거듭 틀려 잠겼으면 429 `TOO_MANY_ATTEMPTS`(틀린 횟수는 로그인 실패와 함께 센다) |
@@ -279,10 +280,10 @@ POST의 `guardianConsent`는 형식 검사를 하지 않는다. 없거나, `agre
 | PATCH | `/children/{id}/goals/{goalId}` | T(작성자) | `{ title?, description?, status? }` — `status`: `IN_PROGRESS`, `ACHIEVED`, `ARCHIVED`. 보낸 항목만 바뀐다. `title`을 보냈다면 공백만으로 둘 수 없다(400 `VALIDATION_FAILED`) |
 | DELETE | `/children/{id}/goals/{goalId}` | T(작성자) | → 204 |
 | GET | `/children/{id}/observations?limit=50&beforeId?` | P(own), T(linked) | 메모 목록(관찰일 최신순, 같은 날은 id 큰 순, `limit` 1~100, `beforeId`는 맨 위 "목록 커서") |
-| POST | `/children/{id}/observations` | T(linked) | `{ content(1~1000), observedOn: "2026-11-06" }` → 201 |
+| POST | `/children/{id}/observations` | T(linked) | `{ content(1~1000), observedOn: "2026-11-06", title?(~40자), cardDeliveryId? }` → 201. `cardDeliveryId`는 이 아이가 받은 코칭 카드이고 보호자가 `coachingCards` 공유를 켠 경우만 첨부할 수 있다(아니면 404) |
 | DELETE | `/children/{id}/observations/{noteId}` | T(작성자) | → 204 |
 
-목표·메모 응답에는 작성 교사 표시명(`teacherName`)이 포함된다. (`/observations`는 교사가 직접 쓰는 관찰 메모다. AI가 적은 기록은 9장의 `/ai-observations`.)
+목표·메모 응답에는 작성 교사 표시명(`teacherName`)이 포함된다. 메모(선생님 이야기)는 `{ id, title, content, observedOn, teacherId, teacherName, createdAt, card }`이고, `card`는 첨부한 코칭 카드 `{ deliveryId, cardId, code, title, body }` 또는 `null`이다. (`/observations`는 교사가 직접 쓰는 관찰 메모다. AI가 적은 기록은 9장의 `/ai-observations`.)
 
 ```json
 // 목표

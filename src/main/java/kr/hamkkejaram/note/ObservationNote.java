@@ -32,7 +32,22 @@ public class ObservationNote {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** 선생님 이야기의 제목(선택). */
+    @Column(length = 40)
+    private String title;
+
+    /** 첨부한 코칭 카드(이 아이가 받은 카드 전달 기록, 선택). */
+    @Column(name = "card_delivery_id")
+    private Long cardDeliveryId;
+
     protected ObservationNote() {}
+
+    public ObservationNote(Long childId, Long teacherId, String title, String content, LocalDate observedOn,
+                           Long cardDeliveryId, Instant createdAt) {
+        this(childId, teacherId, content, observedOn, createdAt);
+        this.title = title;
+        this.cardDeliveryId = cardDeliveryId;
+    }
 
     public ObservationNote(Long childId, Long teacherId, String content, LocalDate observedOn, Instant createdAt) {
         this.childId = childId;
@@ -53,4 +68,8 @@ public class ObservationNote {
     public LocalDate getObservedOn() { return observedOn; }
 
     public Instant getCreatedAt() { return createdAt; }
+
+    public String getTitle() { return title; }
+
+    public Long getCardDeliveryId() { return cardDeliveryId; }
 }

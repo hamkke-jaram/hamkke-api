@@ -80,6 +80,9 @@ public class MeController {
 
     static final String DISPLAY_NAME_MESSAGE = AuthService.DISPLAY_NAME_MESSAGE;
 
+    /** 선생님의 기관·반 이름. 둘 다 선택이고 빈 값이면 지운다. */
+    public record TeacherProfileRequest(@Size(max = 40) String institution, @Size(max = 30) String className) {}
+
     public record ConsentRequest(@NotNull ConsentType type, @NotBlank @Size(max = 30) String version) {}
 
     public record ConsentResponse(ConsentType type, String version, Long childId, Instant agreedAt,
@@ -103,6 +106,23 @@ public class MeController {
         User u = currentUser(user);
         u.changeDisplayName(name);
         return response(u);
+    }
+
+    /** 선생님의 기관·반 이름(선생님 홈 머리). 선생님만. */
+    @PutMapping("/teacher-profile")
+    @Transactional
+    public UserResponse updateTeacherProfile(@AuthenticationPrincipal AuthUser user,
+                                             @Valid @RequestBody TeacherProfileRequest req) {
+        user.requireTeacher();
+        User u = currentUser(user);
+        u.changeTeacherProfile(blankToNull(req.institution()), blankToNull(req.className()));
+        return response(u);
+    }
+
+    private static String blankToNull(String s) {
+        if (s == null) return null;
+        String t = s.strip();
+        return t.isEmpty() ? null : t;
     }
 
     /** 비밀번호 변경(ACC-09) → 새 토큰 묶음. 다른 기기의 리프레시 토큰은 모두 폐기된다. */
