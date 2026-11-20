@@ -32,8 +32,27 @@ public final class ObservationContentParser {
         List<AdultResponse> adultResponses = tags(obs.get("adultResponses"), AdultResponse.class, "adultResponses");
         List<Moment> moments = moments(obs.get("moments"));
         int peopleCount = intInRange(obs.get("peopleCount"), 0, ObservationContent.MAX_PEOPLE_COUNT, "peopleCount");
+        // 선생님용 두 줄은 없어도 된다(예전 AI 서버의 영수증). 아무도 없거나 혼자인 장면에는 해당 줄을 두지 않는다.
+        String childLine = peopleCount == 0 ? null : line(obs.get("childLine"), "아이", "childLine");
+        String parentLine = peopleCount < 2 ? null : line(obs.get("parentLine"), "어른", "parentLine");
 
-        return new ObservationContent(summary, childStates, adultResponses, moments, peopleCount);
+        return new ObservationContent(summary, childStates, adultResponses, moments, peopleCount, childLine, parentLine);
+    }
+
+    /**
+     * 선생님용 한 줄. 모양이 약속과 다르면(문자열 아님, 40자 초과) 영수증 전체를 받지 않는다.
+     * AI 서버와 같은 검사(문장 검사, 숫자 없음, 한 문장, 그 줄의 주인공으로 시작)에 걸리면 그 줄만 버린다(null).
+     */
+    private static String line(Object value, String subject, String field) {
+        if (value == null) return null;
+        if (!(value instanceof String raw)) throw new InvalidReceiptException(field + "_not_string");
+        String text = clean(raw);
+        if (text.isEmpty()) return null;
+        if (length(text) > ObservationContent.MAX_LINE_CHARS) throw new InvalidReceiptException(field + "_too_long");
+        boolean oneSentence = !text.substring(0, text.length() - 1).matches(".*[.!?…].*");
+        boolean startsWithSubject = text.matches("^" + subject + "(가|이|는|은|도) .*");
+        if (!oneSentence || !startsWithSubject || text.chars().anyMatch(Character::isDigit)) return null;
+        return ObservationSentenceFilter.isAllowed(text) ? text : null;
     }
 
     private static String summary(Object value) {

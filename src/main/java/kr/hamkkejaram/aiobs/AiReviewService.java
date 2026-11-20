@@ -63,7 +63,8 @@ public class AiReviewService {
 
     private AiObservation reviewable(long childId, long id) {
         return observations.findByIdAndChildId(id, childId)
-                .filter(o -> o.getSource() == ObservationSource.HOME && o.getReviewStatus() != null)
+                // 보호자가 선생님에게 보내지 않기로 한 기록은 검토함에서도 열 수 없다.
+                .filter(o -> o.getSource() == ObservationSource.HOME && o.getReviewStatus() != null && !o.isHiddenFromTeacher())
                 .orElseThrow(ApiException::notFound);
     }
 

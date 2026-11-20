@@ -1,6 +1,7 @@
 package kr.hamkkejaram.aiobs;
 
 import kr.hamkkejaram.aiobs.AiObservationDtos.AiSessionResponse;
+import kr.hamkkejaram.aiobs.AiObservationDtos.HomeScene;
 import kr.hamkkejaram.aiobs.AiObservationDtos.ObservationResponse;
 import kr.hamkkejaram.aiobs.AiObservationDtos.SaveObservationRequest;
 import kr.hamkkejaram.aiobs.AiObservationDtos.SaveObservationResponse;
@@ -148,15 +149,18 @@ public class AiObservationService {
             if (!homeShared || !consent.hasActiveConsent(childId)) sources = EnumSet.of(ObservationSource.INSTITUTION);
         }
         int n = Math.max(1, Math.min(MAX_LIST, limit));
+        // 보호자가 선생님에게 보내지 않기로 한 기록은 선생님 목록에서 뺀다.
+        boolean includeHidden = !user.isTeacher();
         List<AiObservation> found;
         if (beforeId == null) {
-            found = observations.findRecent(childId, sources, PageRequest.of(0, n));
+            found = observations.findRecent(childId, sources, includeHidden, PageRequest.of(0, n));
         } else {
             Set<ObservationSource> visible = sources;
             AiObservation anchor = observations.findByIdAndChildId(beforeId, childId)
                     .filter(o -> visible.contains(o.getSource()))
+                    .filter(o -> includeHidden || !o.isHiddenFromTeacher())
                     .orElseThrow(ApiException::unknownCursor);
-            found = observations.findOlderThan(childId, sources, anchor.getRecordedAt(), anchor.getId(),
+            found = observations.findOlderThan(childId, sources, includeHidden, anchor.getRecordedAt(), anchor.getId(),
                     PageRequest.of(0, n));
         }
 
@@ -165,6 +169,52 @@ public class AiObservationService {
                         .map(AiObservation::getCreatedBy).filter(Objects::nonNull).distinct().toList())
                 .stream().collect(Collectors.toMap(User::getId, User::getDisplayName));
         return found.stream().map(o -> ObservationResponse.from(o, authorName(o, names), user.id(), user.isTeacher())).toList();
+    }
+
+    /**
+     * 가정 장면 요약 목록(최신순). 원본 관찰 대신 줄인 형태만 돌려준다.
+     * <ul>
+     *   <li>보호자: 자기 아이의 가정 기록 전부(선생님에게 보내지 않기로 한 것 포함 — 미리보기 용도).</li>
+     *   <li>선생님: 'AI 관찰 기록' 공유가 켜져 있고 AI 동의가 살아 있을 때만. 아니면 404(공유 여부를 드러내지 않음).
+     *       보호자가 보내지 않기로 한 기록은 빠진다.</li>
+     * </ul>
+     */
+    @Transactional(readOnly = true)
+    public List<HomeScene> homeScenes(AuthUser user, long childId, int limit, Long beforeId) {
+        access.requireOwnerOrLinkedTeacher(user, childId);
+        if (user.isTeacher()) {
+            boolean homeShared = shareSettings.findById(childId).map(ShareSetting::isAiObservations).orElse(false);
+            if (!homeShared || !consent.hasActiveConsent(childId)) throw ApiException.notFound();
+        }
+        Set<ObservationSource> home = EnumSet.of(ObservationSource.HOME);
+        boolean includeHidden = !user.isTeacher();
+        int n = Math.max(1, Math.min(MAX_LIST, limit));
+        List<AiObservation> found;
+        if (beforeId == null) {
+            found = observations.findRecent(childId, home, includeHidden, PageRequest.of(0, n));
+        } else {
+            AiObservation anchor = observations.findByIdAndChildId(beforeId, childId)
+                    .filter(o -> o.getSource() == ObservationSource.HOME)
+                    .filter(o -> includeHidden || !o.isHiddenFromTeacher())
+                    .orElseThrow(ApiException::unknownCursor);
+            found = observations.findOlderThan(childId, home, includeHidden, anchor.getRecordedAt(), anchor.getId(),
+                    PageRequest.of(0, n));
+        }
+        return found.stream().map(HomeScene::from).toList();
+    }
+
+    /**
+     * 보호자가 가정 기록 한 건을 선생님에게 보낼지 정한다. 숨기면 선생님 화면(목록, 코칭의 장면 요약, 검토함) 어디에도
+     * 나오지 않는다. 기관 기록은 선생님이 만든 것이라 대상이 아니다(404).
+     */
+    @Transactional
+    public ObservationResponse setTeacherVisibility(AuthUser user, long childId, long observationId, boolean hidden) {
+        access.requireOwner(user, childId);
+        AiObservation o = observations.findByIdAndChildId(observationId, childId)
+                .filter(x -> x.getSource() == ObservationSource.HOME)
+                .orElseThrow(ApiException::notFound);
+        o.setHiddenFromTeacher(hidden);
+        return ObservationResponse.from(o, null, user.id(), false);
     }
 
     /** 보호자는 전부, 선생님은 자기가 만든 기록만 지울 수 있다. */

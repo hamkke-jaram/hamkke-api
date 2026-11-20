@@ -4,9 +4,11 @@ import jakarta.validation.Valid;
 import kr.hamkkejaram.aiobs.AiObservationDtos.AiConsentRequest;
 import kr.hamkkejaram.aiobs.AiObservationDtos.AiConsentResponse;
 import kr.hamkkejaram.aiobs.AiObservationDtos.AiSessionResponse;
+import kr.hamkkejaram.aiobs.AiObservationDtos.HomeScene;
 import kr.hamkkejaram.aiobs.AiObservationDtos.ObservationResponse;
 import kr.hamkkejaram.aiobs.AiObservationDtos.SaveObservationRequest;
 import kr.hamkkejaram.aiobs.AiObservationDtos.SaveObservationResponse;
+import kr.hamkkejaram.aiobs.AiObservationDtos.TeacherVisibilityRequest;
 import kr.hamkkejaram.security.AuthUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -74,6 +76,22 @@ public class AiObservationController {
                                           @RequestParam(defaultValue = "20") int limit,
                                           @RequestParam(required = false) Long beforeId) {
         return service.list(user, childId, limit, beforeId);
+    }
+
+    /** 가정 장면 요약 목록(선생님용으로 줄인 형태). 보호자는 미리보기로, 선생님은 공유가 켜져 있을 때 본다. */
+    @GetMapping("/home-scenes")
+    public List<HomeScene> homeScenes(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
+                                      @RequestParam(defaultValue = "20") int limit,
+                                      @RequestParam(required = false) Long beforeId) {
+        return service.homeScenes(user, childId, limit, beforeId);
+    }
+
+    /** 보호자: 가정 기록 한 건을 선생님에게 보낼지(hidden=false) 보내지 않을지(hidden=true). */
+    @PutMapping("/ai-observations/{observationId}/teacher-visibility")
+    public ObservationResponse setTeacherVisibility(@AuthenticationPrincipal AuthUser user, @PathVariable long childId,
+                                                    @PathVariable long observationId,
+                                                    @Valid @RequestBody TeacherVisibilityRequest req) {
+        return service.setTeacherVisibility(user, childId, observationId, req.hidden());
     }
 
     @DeleteMapping("/ai-observations/{observationId}")

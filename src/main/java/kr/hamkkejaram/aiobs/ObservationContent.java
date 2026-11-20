@@ -7,13 +7,15 @@ import java.util.List;
  * summary는 없을 수 있다(null). 사진은 어디에도 없다.
  */
 public record ObservationContent(String summary, List<ChildState> childStates, List<AdultResponse> adultResponses,
-                                 List<Moment> moments, int peopleCount) {
+                                 List<Moment> moments, int peopleCount, String childLine, String parentLine) {
 
     public static final int MAX_SUMMARY_CHARS = 300;
     public static final int MAX_NOTE_CHARS = 120;
     public static final int MAX_TAGS = 3;
     public static final int MAX_MOMENTS = 4;
     public static final int MAX_PEOPLE_COUNT = 3; // 3은 '3명 이상'
+    /** 선생님용 아이 한 줄·어른 한 줄(childLine·parentLine)의 최대 글자 수. 없을 수 있다(null). */
+    public static final int MAX_LINE_CHARS = 40;
 
     /** t는 보낸 사진의 시각(초). */
     public record Moment(double t, String note) {}
